@@ -6,7 +6,6 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
 DATA="$REPO/data"
 VENV="$REPO/.venv"
-LEGACY="$HOME/Library/Application Support/worktracker"
 LABEL="com.worktracker.agent"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
@@ -41,19 +40,13 @@ if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "import AppKit, Quar
 fi
 
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+# bootout returns before the service is fully gone; bootstrapping too early fails
+# with "Bootstrap failed: 5: Input/output error".
+for _ in $(seq 1 50); do
+  launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1 || break
+  sleep 0.2
+done
 mkdir -p "$DATA/logs" "$HOME/Library/LaunchAgents"
-
-# Earlier versions kept data in ~/Library/Application Support/worktracker.
-if [[ -f "$LEGACY/tracker.db" && ! -f "$DATA/tracker.db" ]]; then
-  echo "Moving existing data from $LEGACY"
-  for f in tracker.db tracker.db-wal tracker.db-shm config.json; do
-    if [[ -f "$LEGACY/$f" ]]; then mv "$LEGACY/$f" "$DATA/"; fi
-  done
-  if [[ -d "$LEGACY/logs" ]]; then
-    find "$LEGACY/logs" -mindepth 1 -maxdepth 1 -exec mv {} "$DATA/logs/" \;
-  fi
-  echo "The old folder now only holds a stale copy of the code; you can delete it: $LEGACY"
-fi
 
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
