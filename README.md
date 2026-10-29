@@ -1,5 +1,9 @@
 # worktracker
 
+
+https://github.com/user-attachments/assets/7699d502-d039-49de-9d4e-42afd98a297b
+
+
 A small macOS activity tracker that helps you stop working on time.
 
 Every ~10 seconds it records which app is in front, the current website (for Chromium browsers and Safari), and whether you are active or idle. Everything stays on your Mac: a local SQLite file and a dashboard on http://127.0.0.1:8765.
