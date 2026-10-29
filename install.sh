@@ -36,7 +36,11 @@ if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "import AppKit, Quar
   PYTHON="$(find_python)"
   "$PYTHON" -m venv "$VENV"
   "$VENV/bin/pip" install --quiet --upgrade pip
-  "$VENV/bin/pip" install --quiet pyobjc-framework-Cocoa pyobjc-framework-Quartz
+fi
+# Reinstall dependencies whenever requirements.txt changes (e.g. after a git pull).
+if ! cmp -s "$REPO/requirements.txt" "$VENV/.requirements.txt"; then
+  "$VENV/bin/pip" install --quiet -r "$REPO/requirements.txt"
+  cp "$REPO/requirements.txt" "$VENV/.requirements.txt"
 fi
 
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
@@ -48,38 +52,45 @@ for _ in $(seq 1 50); do
 done
 mkdir -p "$DATA/logs" "$HOME/Library/LaunchAgents"
 
-cat > "$PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>$LABEL</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$VENV/bin/python</string>
-    <string>$REPO/tracker.py</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>WORKTRACKER_HOME</key><string>$DATA</string>
-  </dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Background</string>
-  <key>Nice</key><integer>10</integer>
-  <key>LowPriorityBackgroundIO</key><true/>
-  <key>StandardOutPath</key><string>$DATA/logs/launchd.out</string>
-  <key>StandardErrorPath</key><string>$DATA/logs/launchd.err</string>
-</dict>
-</plist>
-EOF
+# plistlib escapes paths, so folders with &, < or non-ASCII characters work.
+"$VENV/bin/python" - "$PLIST" "$LABEL" "$VENV/bin/python" "$REPO/tracker.py" "$DATA" <<'PLIST_PY'
+import plistlib, sys
+plist, label, python, tracker, data = sys.argv[1:]
+with open(plist, "wb") as f:
+    plistlib.dump({
+        "Label": label,
+        "ProgramArguments": [python, tracker],
+        "EnvironmentVariables": {"WORKTRACKER_HOME": data},
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "ProcessType": "Background",
+        "Nice": 10,
+        "LowPriorityBackgroundIO": True,
+        "StandardOutPath": f"{data}/logs/launchd.out",
+        "StandardErrorPath": f"{data}/logs/launchd.err",
+    }, f)
+PLIST_PY
 
 launchctl bootstrap "$DOMAIN" "$PLIST"
 
 PORT=$("$VENV/bin/python" -c "import json,sys;print(json.load(open(sys.argv[1])).get('dashboard_port',8765))" "$DATA/config.json" 2>/dev/null || echo 8765)
+# Wait until this install's dashboard answers; a port owned by something else must not look like success.
+ready=""
+for _ in $(seq 1 40); do
+  if curl -fsS -m 2 "http://127.0.0.1:$PORT/api/stats" 2>/dev/null | grep -q '"settings"'; then
+    ready=1
+    break
+  fi
+  sleep 0.25
+done
+if [[ -z "$ready" ]]; then
+  echo "The agent started, but the dashboard isn't answering on port $PORT." >&2
+  echo "See $DATA/logs/worktracker.log. If the port is taken, set \"dashboard_port\" in $DATA/config.json and run ./install.sh again." >&2
+  exit 1
+fi
 echo "Running. Dashboard: http://127.0.0.1:$PORT"
-echo "Config:  $DATA/config.json  (edits apply automatically, except sample_seconds and port)"
+echo "Config:  $DATA/config.json  (edits apply automatically, except sample_seconds and dashboard_port)"
 echo "Logs:    $DATA/logs/"
 echo "First run: allow Automation access for your browser when macOS asks."
 echo "Goals, work window and alerts: open the dashboard and use Goals & settings."
-echo "After editing the code, run ./install.sh again to restart the agent."
+echo "After updating the code (e.g. git pull), run ./install.sh again to restart the agent."

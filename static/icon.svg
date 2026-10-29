@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1690d6"/>
+      <stop offset="1" stop-color="#0a4a7a"/>
+    </linearGradient>
+    <mask id="crescent">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <circle cx="566" cy="462" r="112" fill="#000"/>
+    </mask>
+  </defs>
+  <!-- macOS icon grid: 824px body with transparent margin -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="262" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="64"/>
+  <!-- the working day: an arc that stops before it closes -->
+  <circle cx="512" cy="512" r="262" fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round"
+          stroke-dasharray="1150 1646" transform="rotate(-90 512 512)"/>
+  <!-- the evening it protects -->
+  <circle cx="512" cy="512" r="128" fill="#f6c453" mask="url(#crescent)"/>
+</svg>

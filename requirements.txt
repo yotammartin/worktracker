@@ -1,0 +1,3 @@
+# Installed into .venv by install.sh.
+pyobjc-framework-Cocoa>=10,<13
+pyobjc-framework-Quartz>=10,<13

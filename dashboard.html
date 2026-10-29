@@ -4,13 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Work tracker</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<meta name="theme-color" content="#0a4a7a">
 <style>
   /* Palette: Okabe-Ito, chosen to stay distinguishable for colour-blind viewers.
      Status is also encoded by shape (circle, triangle, square) and text. */
   :root {
     --bg: #f2f4f7; --panel: #ffffff; --ink: #1a2030; --muted: #5b6678;
     --line: #dce1e9; --grid: #e9edf2; --zone-in: #eef5fb; --zone-off: #f6f7f9;
-    --data: #0072b2; --after: #cc79a7;
+    --data: #0072b2; --after: #cc79a7; --meet: #7b5cc4;
     --ok: #009e73; --warn: #e69f00; --over: #d55e00;
     --ok-text: #006b4f; --warn-text: #7a5000; --over-text: #a13f00;
     --font: ui-sans-serif, -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
@@ -19,7 +23,7 @@
     :root {
       --bg: #0f131a; --panel: #171c25; --ink: #e7eaf0; --muted: #98a2b3;
       --line: #2a3140; --grid: #222936; --zone-in: #1a2431; --zone-off: #141922;
-      --data: #56b4e9; --after: #e48cc0;
+      --data: #56b4e9; --after: #e48cc0; --meet: #b39ddb;
       --ok: #2fc79a; --warn: #f0b429; --over: #f07c3a;
       --ok-text: #5fe0b9; --warn-text: #f5c75a; --over-text: #f59a64;
     }
@@ -58,7 +62,8 @@
   main { max-width: 1240px; margin: 0 auto; padding: 16px 20px 56px; display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
   .s12 { grid-column: span 12; } .s8 { grid-column: span 8; } .s6 { grid-column: span 6; } .s4 { grid-column: span 4; }
-  @media (max-width: 960px) { .s8, .s6, .s4 { grid-column: span 12; } }
+  #side { grid-row: span 2; }
+  @media (max-width: 960px) { .s8, .s6, .s4 { grid-column: span 12; } #side { grid-row: auto; } }
   .ph { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   h2 { font-size: 14px; font-weight: 650; margin: 0; }
   .sub { color: var(--muted); font-size: 13px; }
@@ -75,7 +80,19 @@
   .chip.over { color: var(--over-text); border-color: color-mix(in srgb, var(--over) 55%, transparent); background: color-mix(in srgb, var(--over) 12%, transparent); }
 
   /* timeline */
+  .ribbon { position: relative; cursor: crosshair; user-select: none; touch-action: pan-y; }
   .ribbon svg { width: 100%; height: auto; display: block; }
+  .tl-zoom { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+  .tl-zoom .btn { min-width: 30px; } .tl-zoom .btn:disabled { opacity: .45; cursor: default; }
+  .tl-cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ink); opacity: .45; pointer-events: none; }
+  .tl-brush { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--data) 16%, transparent); border: 1px solid var(--data); border-radius: 3px; pointer-events: none; }
+  .tl-tip { position: absolute; top: calc(100% + 4px); transform: translateX(-50%); z-index: 5; min-width: 200px; max-width: 300px; padding: 8px 10px; font-size: 12px; line-height: 1.45;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(10, 14, 20, .18); pointer-events: none; }
+  .tl-tip .muted { color: var(--muted); }
+  .tl-tip .kv-row { display: flex; justify-content: space-between; gap: 14px; }
+  .tl-tip .kv-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tl-tip .alert-row { margin-top: 6px; color: var(--warn-text); }
+  [hidden] { display: none !important; }
   .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 12px; margin-top: 8px; }
   .legend i { display: inline-block; width: 12px; height: 8px; margin-right: 6px; border-radius: 2px; vertical-align: middle; }
   .legend i.line { height: 0; border-top: 2px dashed; border-radius: 0; width: 14px; }
@@ -112,6 +129,8 @@
 
   /* tables */
   table { width: 100%; border-collapse: collapse; }
+  .tscroll { position: relative; overflow-y: auto; }
+  .tscroll th { position: sticky; top: 0; z-index: 1; background: var(--panel); border-bottom: 0; box-shadow: inset 0 -1px 0 var(--line); }
   th { text-align: left; font-weight: 550; font-size: 12px; color: var(--muted); padding: 0 0 6px; border-bottom: 1px solid var(--line); }
   td { padding: 7px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
   th.n, td.n { text-align: right; padding-left: 12px; white-space: nowrap; }
@@ -131,13 +150,35 @@
   .heat .cl { grid-column: span 6; padding-top: 4px; }
 
   /* side panel */
-  .step-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 12px; background: color-mix(in srgb, var(--data) 5%, transparent); }
-  .step-card b { display: block; font-weight: 600; margin-bottom: 2px; }
-  textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); padding: 8px; }
+  .todo-group { margin-bottom: 16px; }
+  .todo-group > b { display: block; font-weight: 600; margin-bottom: 4px; }
+  ul.todos { list-style: none; margin: 0 0 6px; padding: 0; }
+  .todo { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--grid); }
+  .todo input[type=checkbox] { margin: 3px 0 0; accent-color: var(--data); cursor: pointer; }
+  .todo-text { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; cursor: text; }
+  .todo-text a { color: var(--data); }
+  .todo.done .todo-text, .todo.dropped .todo-text { color: var(--muted); text-decoration: line-through; }
+  .todo.dropped .todo-text { opacity: .7; }
+  .todo-since { font-size: 11px; color: var(--warn-text); white-space: nowrap; margin-top: 2px; }
+  .todo.done .todo-since { color: var(--muted); }
+  .todo-acts { display: flex; opacity: 0; }
+  .todo:hover .todo-acts, .todo:focus-within .todo-acts { opacity: 1; }
+  .todo-act { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 5px; font-size: 14px; line-height: 1.3; }
+  .todo-act:hover { color: var(--ink); }
+  .todo-act.done-act:hover { color: var(--ok-text); }
+  .todo-act.bin { color: var(--over); display: inline-flex; align-items: center; padding: 1px 5px; }
+  .todo-act.bin:hover { color: var(--over-text); }
+  .todo-act.bin svg { width: 14px; height: 14px; }
+  textarea.todo-add, textarea.todo-edit { min-height: 0; resize: none; padding: 5px 8px; }
+  .todo-add { border-style: dashed; }
+  textarea.todo-edit { flex: 1; width: auto; min-width: 0; padding: 1px 6px; }
+  .personal { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .personal.on { color: var(--ink); background: color-mix(in srgb, var(--after) 14%, transparent); border-radius: 7px; padding: 3px 4px 3px 10px; }
+  textarea { width: 100%; min-height: 64px; max-height: 60vh; field-sizing: content; resize: vertical; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); padding: 8px; }
   .row-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
   ul.alerts { list-style: none; margin: 0; padding: 0; }
   ul.alerts li { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--grid); }
-  ul.alerts time { color: var(--muted); white-space: nowrap; }
+  ul.alerts time { color: var(--muted); white-space: nowrap; min-width: 92px; }
 
   dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); padding: 0; width: min(560px, 94vw); }
   dialog::backdrop { background: rgba(10, 14, 20, .5); }
@@ -153,12 +194,62 @@
   .checks { display: grid; gap: 6px; grid-column: span 2; }
   .hint { font-size: 12px; color: var(--muted); grid-column: span 2; }
   .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  /* dataset switch */
+  .ds-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 2px 70px; }
+  .ds-badge { font-size: 12px; font-weight: 600; color: var(--warn-text); border: 1px solid var(--warn); border-radius: 999px; padding: 1px 9px; }
+  .ds-badge[hidden] { display: none; }
+
+  /* chat panel */
+  body.chat-open { margin-right: var(--chat-w); }
+  .chat { position: fixed; top: 0; right: 0; bottom: 0; width: var(--chat-w); z-index: 20; display: flex; flex-direction: column;
+          background: var(--panel); border-left: 1px solid var(--line); box-shadow: -6px 0 24px rgba(0, 0, 0, .08); }
+  .chat[hidden] { display: none; }
+  .chat-grip { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+  .chat-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .chat-head b { flex: 1; }
+  .chat-head .btn { padding: 3px 8px; }
+  .chat-log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { overflow-wrap: anywhere; }
+  .msg.user { align-self: flex-end; max-width: 85%; background: color-mix(in srgb, var(--data) 14%, transparent); border-radius: 10px; padding: 6px 10px; white-space: pre-wrap; }
+  .msg.bot > :first-child { margin-top: 0; } .msg.bot > :last-child { margin-bottom: 0; }
+  .msg.bot p, .msg.bot ul, .msg.bot ol, .msg.bot pre, .msg.bot table { margin: 0 0 8px; }
+  .msg.bot ul, .msg.bot ol { padding-left: 20px; }
+  .msg.bot h3 { font-size: 14px; margin: 10px 0 4px; }
+  .msg.bot code { font: 12px ui-monospace, Menlo, monospace; background: var(--grid); border-radius: 4px; padding: 1px 4px; }
+  .msg.bot pre { background: var(--grid); border-radius: 6px; padding: 8px; overflow-x: auto; }
+  .msg.bot pre code { background: none; padding: 0; }
+  .msg.bot table { font-size: 13px; display: block; overflow-x: auto; }
+  .msg.bot td { padding: 3px 10px 3px 0; border-bottom: 1px solid var(--grid); }
+  .msg.bot td:not(:last-child) { white-space: nowrap; }
+  .msg.bot a { color: var(--data); }
+  .msg.err { color: var(--over-text); }
+  .chat-tool { font-size: 12px; color: var(--muted); }
+  .chat-hints { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .chat-in { border-top: 1px solid var(--line); padding: 10px 12px; display: flex; gap: 8px; align-items: flex-end; }
+  /* Clawd, the Claude Code mascot: blinks and glances around; hops while Claude answers. */
+  .clawd { width: 100%; height: 100%; display: block; overflow: visible; }
+  .clawd .eyes { animation: glance 7s steps(1) infinite; }
+  .clawd .eyes rect { transform-box: fill-box; transform-origin: 50% 50%; animation: blink 4.2s infinite; }
+  @keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 95%, 97% { transform: scaleY(.1); } }
+  @keyframes glance { 0%, 55%, 85%, 100% { transform: none; } 60% { transform: translateX(-8px); } 72% { transform: translateX(8px); } }
+  .busy .clawd .hop { animation: hop .5s steps(1) infinite; }
+  @keyframes hop { 0%, 100% { transform: none; } 50% { transform: translateY(-8px); } }
+  @media (prefers-reduced-motion: reduce) { .clawd *, .busy .clawd .hop { animation: none !important; } }
+  .chat-fab { position: fixed; right: 22px; bottom: 22px; z-index: 19; width: 56px; height: 56px; padding: 11px 10px; border-radius: 50%; cursor: pointer;
+              border: 1px solid var(--line); background: var(--panel); box-shadow: 0 6px 20px rgba(0, 0, 0, .18); transition: transform .15s; }
+  .chat-fab:hover { transform: scale(1.07); }
+  .chat-fab[hidden] { display: none; }
+  .chat-head .clawd { width: 24px; height: 20px; flex: none; }
+  .chat-thinking { width: 32px; height: 24px; }
+  .chat-in textarea { flex: 1; min-height: 38px; max-height: 40vh; resize: none; }
 </style>
 </head>
 <body>
 <header class="toolbar">
   <div class="toolbar-in">
     <span class="brand">Work tracker</span>
+    <span class="ds-badge" id="dsBadge" hidden title="The dashboard and Ask Claude are showing generated sample data. Your activity is still recorded into your own data.">Sample data</span>
     <div class="seg" id="ranges" role="group" aria-label="Time range">
       <button data-r="today">Today</button>
       <button data-r="yesterday">Yesterday</button>
@@ -185,6 +276,7 @@
     <span class="updated"><span class="pulse" id="pulse"></span><span id="updated">Loading</span></span>
     <button class="btn" id="refresh">Refresh</button>
     <button class="btn" id="export">Export CSV</button>
+    <span class="personal" id="personal"></span>
     <button class="btn" id="settings">Goals &amp; settings</button>
   </div>
 </header>
@@ -193,7 +285,9 @@
   <div class="banner" id="banner" hidden></div>
 
   <section class="panel s12" aria-labelledby="tlTitle">
-    <div class="ph"><h2 id="tlTitle">Day timeline</h2><span class="sub" id="tlSub"></span></div>
+    <div class="ph"><h2 id="tlTitle">Day timeline</h2><span class="sub" id="tlSub"></span>
+      <span class="tl-zoom"><span class="sub" id="tlZoom"></span>
+        <button class="btn" id="tlReset">Reset zoom</button></span></div>
     <div class="ribbon" id="ribbon"></div>
     <div class="legend" id="tlLegend"></div>
   </section>
@@ -216,13 +310,41 @@
   <section class="panel s6"><div class="ph"><h2>Applications</h2><span class="sub">Click a row to filter</span></div><div id="apps"></div></section>
   <section class="panel s6"><div class="ph"><h2>Websites</h2><span class="sub">Browser tabs in front</span></div><div id="domains"></div></section>
 
-  <section class="panel s8">
+  <section class="panel s8" id="heatPanel">
     <div class="ph"><h2>When you work</h2><span class="sub">Weekday by hour. Pink marks after-hours slots.</span></div>
     <div class="heat" id="heat"></div>
   </section>
 
   <section class="panel s4" id="side"></section>
+
+  <section class="panel s8" id="alertsPanel" aria-labelledby="alertsTitle"><div class="ph"><h2 id="alertsTitle">Alerts</h2></div><ul class="alerts" id="alerts"></ul></section>
+
+  <footer class="ds-footer s12">
+    <span class="sub">Data</span>
+    <div class="seg" id="dsSeg" role="group" aria-label="Dataset">
+      <button data-ds="real">Your data</button>
+      <button data-ds="mock">Sample data</button>
+    </div>
+    <span class="sub" id="dsHint"></span>
+  </footer>
 </main>
+
+<button class="chat-fab" id="chatBtn" aria-expanded="false" aria-label="Ask Claude" title="Ask Claude about your time and notes"><svg class="clawd" viewBox="8 40 152 104" shape-rendering="crispEdges" aria-hidden="true"><g class="hop"><path fill="#d77757" d="M32 56h104v64h-104zM16 88h16v16h-16zM136 88h16v16h-16zM32 120h8v16h-8zM48 120h8v16h-8zM112 120h8v16h-8zM128 120h8v16h-8z"/><g class="eyes"><rect x="56" y="72" width="8" height="16" fill="#141414"/><rect x="104" y="72" width="8" height="16" fill="#141414"/></g></g></svg></button>
+
+<aside class="chat" id="chat" aria-label="Ask Claude" hidden>
+  <div class="chat-grip" id="chatGrip" title="Drag to resize"></div>
+  <div class="chat-head">
+    <svg class="clawd" viewBox="8 40 152 104" shape-rendering="crispEdges" aria-hidden="true"><g class="hop"><path fill="#d77757" d="M32 56h104v64h-104zM16 88h16v16h-16zM136 88h16v16h-16zM32 120h8v16h-8zM48 120h8v16h-8zM112 120h8v16h-8zM128 120h8v16h-8z"/><g class="eyes"><rect x="56" y="72" width="8" height="16" fill="#141414"/><rect x="104" y="72" width="8" height="16" fill="#141414"/></g></g></svg><b>Ask Claude</b>
+    <button class="btn" id="chatNew" title="Start a new conversation">New</button>
+    <button class="btn" id="chatWide" title="Wider / narrower">&#x2194;</button>
+    <button class="btn" id="chatClose" aria-label="Close">&times;</button>
+  </div>
+  <div class="chat-log" id="chatLog" aria-live="polite"></div>
+  <form class="chat-in" id="chatForm">
+    <textarea id="chatInput" rows="1" placeholder="Ask about your time, focus or to-dos (Enter to send, Shift+Enter for a new line)" aria-label="Message"></textarea>
+    <button class="btn primary" id="chatSend">Send</button>
+  </form>
+</aside>
 
 <dialog id="dlg">
   <form method="dialog" id="form">
@@ -242,6 +364,7 @@
       <div class="f full"><label>Work days</label><div class="days" id="wD"></div></div>
       <div class="f"><label for="wkS">Week starts on</label><select id="wkS"></select></div>
       <div class="f"><label for="dSH">Day starts at</label><select id="dSH"></select></div>
+      <div class="f"><label for="tlM">Timeline: join stretches when the break is under (minutes)</label><input type="number" id="tlM" min="0" max="120"></div>
       <p class="hint">Activity outside this window, on other days, or after you close the day counts as after hours. Activity before the day start counts toward the previous day.</p>
     </fieldset>
     <fieldset>
@@ -249,10 +372,18 @@
       <div class="f full"><label for="plan">Your shutdown plan (finishes the sentence "If it's the end of the day, then I will...")</label><input type="text" id="plan" maxlength="200"></div>
       <div class="f"><label for="brk">Break reminder after (minutes)</label><input type="number" id="brk" min="10" max="480" step="5"></div>
       <div class="f"><label for="idl">Count as away after (minutes idle)</label><input type="number" id="idl" min="1" max="60"></div>
+      <div class="f"><label for="early">No after-hours alerts for early starts from</label><input type="time" id="early"></div>
+      <p class="hint">On work days, working between this time and your work start doesn't trigger after-hours alerts; it still counts as after hours. Clear it to always alert.</p>
       <div class="checks">
         <label><input type="checkbox" id="aOn"> Alerts on</label>
-        <label><input type="checkbox" id="aDlg"> Pop-up dialogs for limits and wind-down (otherwise quiet notifications)</label>
       </div>
+      <div class="f"><label for="rSty">Routine alerts (heads-ups, breaks)</label><select id="rSty"></select></div>
+      <div class="f"><label for="iSty">Important alerts (limits, personal time over)</label><select id="iSty"></select></div>
+      <div class="f full"><div class="row-actions" style="margin-top:0">
+        <button class="btn" type="button" id="testR">Preview routine</button>
+        <button class="btn" type="button" id="testI">Preview important</button>
+      </div></div>
+      <p class="hint">The end-of-day prompt always uses a system dialog, since it asks you to type tomorrow's to-dos, unless important alerts are set to Notification.</p>
     </fieldset>
     <div class="dlg-actions">
       <button class="btn" value="cancel" id="dCancel">Cancel</button>
@@ -338,6 +469,30 @@ async function api(params) {
   return r.json();
 }
 
+const DATASET_HINTS = {
+  real: "",
+  mock: "Showing generated sample data: the dashboard, to-dos and Ask Claude all use it. Your activity is still recorded into your own data.",
+};
+
+function renderDataset(name) {
+  document.querySelectorAll("#dsSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.ds === name)));
+  $("dsBadge").hidden = name !== "mock";
+  $("dsHint").textContent = DATASET_HINTS[name];
+  useChatFor(name);
+}
+
+async function switchDataset(name) {
+  if (data && data.dataset === name) return;
+  $("dsHint").textContent = name === "mock" ? "Loading sample data (generated on first use)…" : "";
+  try {
+    await post("/api/dataset", { name });
+  } catch {
+    $("dsHint").textContent = "Couldn't switch datasets; see data/logs/worktracker.log.";
+    return;
+  }
+  load();
+}
+
 async function load() {
   clearTimeout(timer);
   const seq = ++loadSeq;
@@ -356,6 +511,7 @@ async function load() {
     }
     data = d;
     $("banner").hidden = true;
+    renderDataset(d.dataset);
     render(d);
     $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
     $("pulse").classList.toggle("live", d.to === d.today);
@@ -391,6 +547,7 @@ function render(d) {
   renderTable($("domains"), d.by_domain, d, "domain");
   renderHeat(d);
   renderSide(d);
+  renderPersonal();
 }
 
 function renderToolbar(d) {
@@ -411,56 +568,49 @@ function renderToolbar(d) {
   saveHash();
 }
 
-function renderRibbon(d) {
-  const t = d.timeline, el = $("ribbon"), g = d.settings;
-  $("tlTitle").textContent = `Day timeline \u00B7 ${dayName(t.day)}`;
-  const flo = ts => { const x = new Date(ts * 1000); x.setMinutes(0, 0, 0); return x.getTime() / 1000; };
-  const cei = ts => { const x = new Date(ts * 1000); if (x.getMinutes() || x.getSeconds()) x.setHours(x.getHours() + 1); x.setMinutes(0, 0, 0); return x.getTime() / 1000; };
-  const starts = t.sessions.map(x => x[0]), ends = t.sessions.map(x => x[1]);
-  let a = flo(Math.min(t.ws - 3600, ...starts)), b = cei(Math.max(t.we + 7200, ...ends, t.is_today ? t.now : 0));
-  a = Math.max(t.day_start, a); b = Math.min(t.day_end, b);
-  if (b - a < 8 * 3600) b = a + 8 * 3600;
+/* ---------- day timeline: hover for details, drag / pinch / buttons to zoom ---------- */
+const TL_MIN_SPAN = 20 * 60;
+const TL_TICK_STEPS = [300, 600, 900, 1800, 3600, 7200, 10800];
+/* The x axis is the same time-of-day window on every day so days can be compared by
+   stepping through them. A zoom is kept as offsets from the day start, so it survives
+   moving to another day. */
+const TL_BEFORE_WORK = 3 * 3600, TL_AFTER_WORK = 6 * 3600;
+const tl = { d: null, view: null, drag: null, ui: null };
 
-  const W = 1000, H = 112, barY = 40, barH = 30, axisY = 96;
-  const x = ts => Math.max(0, Math.min(W, (ts - a) / (b - a) * W));
-  const lim = t.is_workday ? [t.ws, Math.min(t.we, t.closed_at || Infinity)] : [Infinity, -Infinity];
-  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
-    "aria-label": `Activity on ${dayName(t.day)}: ${t.sessions.length} stretches of work` });
-  svg.append(s("defs", {}, s("pattern", { id: "hatch", width: 7, height: 7, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" },
-    s("line", { x1: 0, y1: 0, x2: 0, y2: 7, stroke: "var(--line)", "stroke-width": 2 }))));
-  svg.append(s("rect", { x: 0, y: barY - 8, width: W, height: barH + 16, rx: 4, fill: "var(--zone-off)" }));
-  svg.append(s("rect", { x: 0, y: barY - 8, width: W, height: barH + 16, rx: 4, fill: "url(#hatch)" }));
-  if (lim[1] > lim[0]) svg.append(s("rect", { x: x(lim[0]), y: barY - 8, width: x(lim[1]) - x(lim[0]), height: barH + 16, fill: "var(--zone-in)" }));
+function timelineDefaultRange(t) {
+  return [Math.max(t.day_start, t.ws - TL_BEFORE_WORK), Math.min(t.day_end, t.we + TL_AFTER_WORK)];
+}
 
-  for (let ts = cei(a); ts <= b; ts += 3600) {
-    const hr = new Date(ts * 1000).getHours();
-    if ((b - a) > 12 * 3600 && hr % 2) continue;
-    svg.append(s("line", { x1: x(ts), x2: x(ts), y1: barY - 8, y2: barY + barH + 8, stroke: "var(--grid)", "stroke-width": 1 }));
-    svg.append(s("text", { x: x(ts), y: axisY, "text-anchor": "middle", text: pad(hr) }));
-  }
-  const seg = (s0, e0, color, title) => { if (e0 - s0 > 0) svg.append(s("rect", { x: x(s0), y: barY, width: Math.max(2, x(e0) - x(s0)), height: barH, rx: 3, fill: color }, s("title", { text: title }))); };
-  t.sessions.forEach(([s0, e1]) => {
-    const title = `${clock(s0)} \u2013 ${clock(e1)} (${dur(e1 - s0)})`;
-    seg(Math.max(s0, lim[0]), Math.min(e1, lim[1]), "var(--data)", title);
-    seg(s0, Math.min(e1, lim[0]), "var(--after)", title + ", after hours");
-    seg(Math.max(s0, lim[1]), e1, "var(--after)", title + ", after hours");
+function timelineRange() {
+  const t = tl.d.timeline;
+  return tl.view ? [t.day_start + tl.view[0], t.day_start + tl.view[1]] : timelineDefaultRange(t);
+}
+
+function workLimits(t) { return t.is_workday ? [t.ws, Math.min(t.we, t.closed_at || Infinity)] : [Infinity, -Infinity]; }
+
+/* Work stretches as the timeline draws them: stretches separated by a break shorter than
+   timeline_merge_minutes form one block. Each block is [start, end, worked secs, breaks]. */
+function timelineBlocks(t, settings) {
+  const gap = settings.timeline_merge_minutes * 60, blocks = [];
+  [...t.sessions].sort((p, q) => p[0] - q[0]).forEach(([s0, e0]) => {
+    const last = blocks[blocks.length - 1];
+    if (last && s0 - last[1] < gap) {
+      last[1] = Math.max(last[1], e0); last[2] += e0 - s0; last[3] += 1;
+    } else blocks.push([s0, e0, e0 - s0, 0]);
   });
-  const mark = (ts, color, dash, label, anchor = "middle") => {
-    if (ts < a || ts > b) return;
-    svg.append(s("line", { x1: x(ts), x2: x(ts), y1: barY - 14, y2: barY + barH + 10, stroke: color, "stroke-width": 2, "stroke-dasharray": dash }));
-    if (label) svg.append(s("text", { x: x(ts), y: 14, "text-anchor": anchor, text: label, style: "fill:" + color + ";font-weight:600" }));
-  };
-  if (t.is_workday) {
-    mark(t.we - g.alerts.wind_down_minutes_before_end * 60, "var(--warn)", "4 3");
-    mark(t.we, "var(--muted)", "", `End ${clock(t.we)}`);
-    if (t.closed_at) mark(t.closed_at, "var(--ok)", "", `Closed ${clock(t.closed_at)}`);
-  }
-  if (t.is_today) mark(t.now, "var(--data)", "", `Now ${clock(t.now)}`);
-  el.replaceChildren(svg);
+  return blocks;
+}
 
-  const len = t.sessions.map(x => x[1] - x[0]);
+function renderRibbon(d) {
+  const t = d.timeline, g = d.settings;
+  tl.d = d;
+  $("tlTitle").textContent = `Day timeline \u00B7 ${dayName(t.day)}`;
+  drawRibbon();
+
+  const blocks = timelineBlocks(t, g);
   const parts = [];
-  if (t.sessions.length) parts.push(`Started ${clock(starts[0])}`, `${t.sessions.length} stretch${t.sessions.length > 1 ? "es" : ""}`, `longest ${dur(Math.max(...len))}`);
+  if (blocks.length) parts.push(`Started ${clock(blocks[0][0])}`, `${blocks.length} stretch${blocks.length > 1 ? "es" : ""}`, `longest ${dur(Math.max(...blocks.map(bl => bl[1] - bl[0])))}`);
+  if (t.meetings.length) parts.push(`${t.meetings.length} meeting${t.meetings.length > 1 ? "s" : ""} (${dur(t.meetings.reduce((sum, [s0, e0]) => sum + e0 - s0, 0))})`);
   let status = "";
   if (t.is_today && t.is_workday) {
     if (t.closed_at) status = `Day closed at ${clock(t.closed_at)}.`;
@@ -468,12 +618,206 @@ function renderRibbon(d) {
     else status = `${dur(t.now - t.we)} past the end of your workday (${clock(t.we)}).`;
   }
   $("tlSub").textContent = [status, parts.join(", ")].filter(Boolean).join(" ") || "No activity recorded.";
-  $("tlLegend").replaceChildren(
+  $("tlLegend").replaceChildren(...[
     h("span", {}, h("i", { style: "background:var(--data)" }), "Work hours"),
     h("span", {}, h("i", { style: "background:var(--after)" }), "After hours"),
     h("span", {}, h("i", { class: "line", style: "color:var(--warn)" }), `Wind-down (${g.alerts.wind_down_minutes_before_end} min before end)`),
-    h("span", {}, "Shaded band = your work window"));
+    t.personal.length ? h("span", {}, h("i", { style: "background:var(--muted);opacity:.45" }), "Personal time") : null,
+    t.meetings.length ? h("span", {}, h("i", { style: "background:var(--meet);height:5px" }), "Zoom meeting") : null,
+    h("span", {}, "Shaded band = your work window"),
+    h("span", {}, "Hover for details · drag or pinch to zoom (kept across days) · double-click to reset · ← → to change day"),
+  ].filter(Boolean));
 }
+
+function drawRibbon() {
+  const d = tl.d, t = d.timeline, g = d.settings, el = $("ribbon");
+  const [a, b] = timelineRange();
+  const W = 1000, H = 112, barY = 40, barH = 30, axisY = 96;
+  const x = ts => Math.max(0, Math.min(W, (ts - a) / (b - a) * W));
+  const lim = workLimits(t);
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": `Activity on ${dayName(t.day)}: ${t.sessions.length} stretches of work` });
+  svg.append(s("defs", {}, s("pattern", { id: "hatch", width: 7, height: 7, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" },
+    s("line", { x1: 0, y1: 0, x2: 0, y2: 7, stroke: "var(--line)", "stroke-width": 2 }))));
+  svg.append(s("rect", { x: 0, y: barY - 8, width: W, height: barH + 16, rx: 4, fill: "var(--zone-off)" }));
+  svg.append(s("rect", { x: 0, y: barY - 8, width: W, height: barH + 16, rx: 4, fill: "url(#hatch)" }));
+  if (lim[1] > lim[0] && lim[1] > a && lim[0] < b) svg.append(s("rect", { x: x(lim[0]), y: barY - 8, width: x(lim[1]) - x(lim[0]), height: barH + 16, fill: "var(--zone-in)" }));
+
+  const step = TL_TICK_STEPS.find(st => (b - a) / st <= 12) || TL_TICK_STEPS[TL_TICK_STEPS.length - 1];
+  const first = new Date(a * 1000); first.setMinutes(0, 0, 0);
+  let tick = first.getTime() / 1000;
+  while (tick < a) tick += step;
+  for (; tick <= b; tick += step) {
+    svg.append(s("line", { x1: x(tick), x2: x(tick), y1: barY - 8, y2: barY + barH + 8, stroke: "var(--grid)", "stroke-width": 1 }));
+    const anchor = x(tick) < 30 ? "start" : x(tick) > W - 30 ? "end" : "middle";
+    svg.append(s("text", { x: x(tick), y: axisY, "text-anchor": anchor, text: step < 3600 ? clock(tick) : pad(new Date(tick * 1000).getHours()) }));
+  }
+  const seg = (s0, e0, color, extra = {}) => {
+    s0 = Math.max(s0, a); e0 = Math.min(e0, b);
+    if (e0 > s0) svg.append(s("rect", { x: x(s0), y: barY, width: Math.max(2, x(e0) - x(s0)), height: barH, rx: 3, fill: color, ...extra }));
+  };
+  t.personal.forEach(([s0, e0]) => seg(s0, e0, "var(--muted)", { opacity: 0.45 }));
+  t.meetings.forEach(([s0, e0]) => {
+    s0 = Math.max(s0, a); e0 = Math.min(e0, b);
+    if (e0 > s0) svg.append(s("rect", { x: x(s0), y: barY + barH + 3, width: Math.max(2, x(e0) - x(s0)), height: 5, rx: 2, fill: "var(--meet)" }));
+  });
+  timelineBlocks(t, g).forEach(([s0, e1]) => {
+    seg(Math.max(s0, lim[0]), Math.min(e1, lim[1]), "var(--data)");
+    seg(s0, Math.min(e1, lim[0]), "var(--after)");
+    seg(Math.max(s0, lim[1]), e1, "var(--after)");
+  });
+  const labels = [];
+  const mark = (ts, color, dash, label) => {
+    if (ts < a || ts > b) return;
+    svg.append(s("line", { x1: x(ts), x2: x(ts), y1: barY - 14, y2: barY + barH + 10, stroke: color, "stroke-width": 2, "stroke-dasharray": dash }));
+    if (label) labels.push({ x: x(ts), text: label, color });
+  };
+  if (t.is_workday) {
+    mark(t.we - g.alerts.wind_down_minutes_before_end * 60, "var(--warn)", "4 3");
+    mark(t.we, "var(--muted)", "", `End ${clock(t.we)}`);
+    if (t.closed_at) mark(t.closed_at, "var(--ok)", "", `Closed ${clock(t.closed_at)}`);
+  }
+  if (t.is_today) mark(t.now, "var(--data)", "", `Now ${clock(t.now)}`);
+  if (t.sessions.length) {
+    const started = Math.min(...t.sessions.map(([s0]) => s0));
+    mark(started, "var(--ink)", "", `Started ${clock(started)}`);
+  }
+  placeLabels(labels, W).forEach(l =>
+    svg.append(s("text", { x: l.x, y: 14, "text-anchor": "middle", text: l.text, style: "fill:" + l.color + ";font-weight:600" })));
+  dayAlerts(d).forEach(al => {
+    if (al.ts < a || al.ts > b) return;
+    const ax = x(al.ts);
+    svg.append(s("path", { d: `M${ax - 5},${barY - 16} L${ax + 5},${barY - 16} L${ax},${barY - 9} Z`, fill: "var(--warn)" }));
+  });
+
+  // Work outside the fixed window is summarised at the edges instead of widening the axis.
+  const outside = (lo, hi) => t.sessions.reduce((sum, [s0, e0]) => sum + Math.max(0, Math.min(e0, hi) - Math.max(s0, lo)), 0);
+  const before = outside(t.day_start, a), after = outside(b, t.day_end);
+  if (before >= 60) svg.append(s("text", { x: 2, y: barY - 14, text: `◂ ${dur(before)} earlier`, style: "fill:var(--after);font-weight:600" }));
+  if (after >= 60) svg.append(s("text", { x: W - 2, y: barY - 14, "text-anchor": "end", text: `${dur(after)} later ▸`, style: "fill:var(--after);font-weight:600" }));
+
+  if (!tl.ui) tl.ui = { cursor: h("div", { class: "tl-cursor", hidden: true }), brush: h("div", { class: "tl-brush", hidden: true }), tip: h("div", { class: "tl-tip", hidden: true }) };
+  el.replaceChildren(svg, tl.ui.cursor, tl.ui.brush, tl.ui.tip);
+  $("tlZoom").textContent = tl.view ? `${clock(a)} – ${clock(b)}` : "";
+  $("tlReset").disabled = !tl.view;
+}
+
+const dayAlerts = d => d.alerts.filter(al => al.ts >= d.timeline.day_start && al.ts < d.timeline.day_end);
+
+function setTimelineView(a, b) {
+  const t = tl.d.timeline, lo = t.day_start, hi = t.day_end;
+  const span = Math.min(Math.max(b - a, TL_MIN_SPAN), hi - lo);
+  a = Math.max(lo, Math.min(a, hi - span)); b = a + span;
+  const [da, db] = timelineDefaultRange(t);
+  tl.view = Math.abs(a - da) < 60 && Math.abs(b - db) < 60 ? null : [a - lo, b - lo];
+  hideTimelineTip();
+  drawRibbon();
+}
+
+function zoomTimeline(factor, centerTs) {
+  const [a, b] = timelineRange();
+  const c = centerTs ?? (a + b) / 2;
+  setTimelineView(c - (c - a) * factor, c + (b - c) * factor);
+}
+
+function timelineTsAt(clientX) {
+  const [a, b] = timelineRange();
+  const r = $("ribbon").querySelector("svg").getBoundingClientRect();
+  return a + Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * (b - a);
+}
+
+/* Marker labels sit above their lines; when two would overlap, they are pushed apart
+   (the lines stay put) and kept inside the chart. Widths are estimated from the text. */
+const LABEL_CHAR_PX = 6.8, LABEL_GAP_PX = 10;
+function placeLabels(labels, width) {
+  const placed = [...labels].sort((p, q) => p.x - q.x).map(l => ({ ...l, w: l.text.length * LABEL_CHAR_PX }));
+  placed.forEach((l, i) => {
+    l.x = Math.min(Math.max(l.x, l.w / 2), width - l.w / 2);
+    const prev = placed[i - 1];
+    if (prev) l.x = Math.max(l.x, prev.x + prev.w / 2 + LABEL_GAP_PX + l.w / 2);
+  });
+  for (let i = placed.length - 1; i >= 0; i--) {
+    const l = placed[i], next = placed[i + 1];
+    l.x = Math.min(l.x, next ? next.x - next.w / 2 - LABEL_GAP_PX - l.w / 2 : width - l.w / 2);
+  }
+  return placed;
+}
+
+function hideTimelineTip() { if (tl.ui) { tl.ui.cursor.hidden = true; tl.ui.tip.hidden = true; } }
+
+function timelineTip(ts) {
+  const d = tl.d, t = d.timeline, [a, b] = timelineRange(), lim = workLimits(t);
+  const rows = [h("b", { text: clock(ts) })];
+  const personal = t.personal.find(([s0, e0]) => ts >= s0 && ts < e0);
+  const block = timelineBlocks(t, d.settings).find(([s0, e0]) => ts >= s0 && ts < e0);
+  if (personal) rows.push(h("div", { text: `Personal time · ${clock(personal[0])} – ${clock(personal[1])}` }));
+  else if (block) {
+    const after = ts < lim[0] || ts >= lim[1], [s0, e0, worked, breaks] = block;
+    const detail = breaks ? `, ${dur(worked)} worked with ${breaks} short break${breaks > 1 ? "s" : ""}` : `, ${dur(e0 - s0)}`;
+    rows.push(h("div", { text: `Working${after ? " (after hours)" : ""} · ${clock(s0)} – ${clock(e0)}${detail}` }));
+  } else rows.push(h("div", { class: "muted", text: t.is_today && ts > t.now ? "Later today" : "Away, idle or not tracked" }));
+  const meeting = t.meetings.find(([s0, e0]) => ts >= s0 && ts < e0);
+  if (meeting) rows.push(h("div", { style: "color:var(--meet);font-weight:600", text: `Zoom meeting · ${clock(meeting[0])} – ${clock(meeting[1])}, ${dur(meeting[1] - meeting[0])}` }));
+  const hour = new Date(ts * 1000).getHours(), top = t.hours[hour];
+  if (top && top.length) {
+    rows.push(h("div", { class: "muted", style: "margin-top:6px", text: `${pad(hour)}:00 – ${pad((hour + 1) % 24)}:00` }));
+    top.forEach(([name, secs]) => rows.push(h("div", { class: "kv-row" }, h("span", { text: name }), h("span", { text: dur(secs) }))));
+  }
+  const near = (b - a) * 0.012;
+  dayAlerts(d).filter(al => Math.abs(al.ts - ts) <= near).forEach(al =>
+    rows.push(h("div", { class: "alert-row", text: `Alert ${clock(al.ts)}: ${al.message}` })));
+  return rows;
+}
+
+function initTimeline() {
+  const el = $("ribbon");
+  el.addEventListener("pointermove", e => {
+    if (!tl.d || !tl.ui) return;
+    const box = el.getBoundingClientRect(), px = e.clientX - box.left;
+    if (tl.drag) {
+      const x0 = tl.drag.px;
+      Object.assign(tl.ui.brush.style, { left: Math.min(x0, px) + "px", width: Math.abs(px - x0) + "px" });
+      tl.ui.brush.hidden = Math.abs(px - x0) < 4;
+      return;
+    }
+    const ts = timelineTsAt(e.clientX);
+    tl.ui.cursor.hidden = false; tl.ui.cursor.style.left = px + "px";
+    tl.ui.tip.replaceChildren(...timelineTip(ts));
+    tl.ui.tip.hidden = false;
+    const w = tl.ui.tip.offsetWidth;
+    tl.ui.tip.style.left = Math.max(w / 2, Math.min(box.width - w / 2, px)) + "px";
+  });
+  el.addEventListener("pointerleave", () => { if (!tl.drag) hideTimelineTip(); });
+  el.addEventListener("pointerdown", e => {
+    if (!tl.d || e.button !== 0) return;
+    el.setPointerCapture(e.pointerId);
+    tl.drag = { px: e.clientX - el.getBoundingClientRect().left, ts: timelineTsAt(e.clientX) };
+    hideTimelineTip();
+  });
+  el.addEventListener("pointerup", e => {
+    if (!tl.drag) return;
+    const start = tl.drag, px = e.clientX - el.getBoundingClientRect().left;
+    tl.drag = null; tl.ui.brush.hidden = true;
+    if (Math.abs(px - start.px) >= 6) {
+      const ts = timelineTsAt(e.clientX);
+      setTimelineView(Math.min(ts, start.ts), Math.max(ts, start.ts));
+    }
+  });
+  el.addEventListener("wheel", e => {
+    if (!tl.d) return;
+    if (e.ctrlKey || e.metaKey) {                         // trackpad pinch arrives as ctrl+wheel
+      e.preventDefault();
+      zoomTimeline(Math.exp(e.deltaY * 0.01), timelineTsAt(e.clientX));
+    } else if (tl.view && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      e.preventDefault();
+      const [a, b] = timelineRange(), shift = e.deltaX / el.getBoundingClientRect().width * (b - a);
+      setTimelineView(a + shift, b + shift);
+    }
+  }, { passive: false });
+  el.addEventListener("dblclick", () => { if (tl.d) { tl.view = null; hideTimelineTip(); drawRibbon(); } });
+  $("tlReset").addEventListener("click", () => { if (tl.d) { tl.view = null; drawRibbon(); } });
+}
+initTimeline();
 
 function renderKpis(d) {
   const g = d.settings.goals, T = d.totals, el = $("kpis");
@@ -523,7 +867,8 @@ function renderDaily(d) {
     if (afH > 0) g2.append(s("rect", { x: cx - bw / 2, y: y(tot), width: bw, height: y(inH) - y(tot), fill: "var(--after)", rx: 2 }));
     if (tot > g.daily_ceiling_hours && g.daily_ceiling_hours > 0) g2.append(s("rect", { x: cx - bw / 2 - 1.5, y: y(tot) - 1.5, width: bw + 3, height: y(0) - y(tot) + 1.5, fill: "none", stroke: "var(--over)", "stroke-width": 2, rx: 3 }));
     svg.append(g2);
-    const label = n <= 16 ? `${toDate(day.day).toLocaleDateString([], { weekday: "narrow" })} ${toDate(day.day).getDate()}` : (i % 2 === 0 ? String(toDate(day.day).getDate()) : "");
+    // The chart spans whole weeks, so on long ranges only each week's first day is labelled.
+    const label = n <= 16 || i % 7 === 0 ? `${DAY_NAMES[(toDate(day.day).getDay() + 6) % 7]} ${toDate(day.day).getDate()}` : "";
     svg.append(s("text", { x: cx, y: H - 10, "text-anchor": "middle", text: label, style: day.workday ? "" : "opacity:.6" }));
     svg.append(s("rect", { class: "bar-hit", x: cx - slot / 2, y: T, width: slot, height: H - T - B, tabindex: 0, role: "button",
       "aria-label": `${dayName(day.day)}: ${dur(day.in_secs + day.after_secs)} active. Show this day.` }, s("title", { text: `${dayName(day.day)}\nWork hours ${dur(day.in_secs)}\nAfter hours ${dur(day.after_secs)}` })));
@@ -569,6 +914,8 @@ function renderWeek(d) {
     h("p", { class: "note", text: "WHO and ILO link regular 55 hour weeks to higher stroke and heart-disease risk. Tracked active time undercounts time at the desk." }));
 }
 
+const TABLE_ROWS = 10;
+
 function renderTable(el, rows, d, kind) {
   if (!rows.length) { el.replaceChildren(h("div", { class: "empty", text: "No activity recorded for this selection." })); return; }
   const total = rows.reduce((a, r) => a + r.secs, 0) || 1, max = rows[0].secs || 1;
@@ -584,7 +931,12 @@ function renderTable(el, rows, d, kind) {
         h("div", { class: "mini" }, h("i", { style: `width:${r.secs / max * 100}%` }))),
       h("td", { class: "n", text: dur(r.secs) }), h("td", { class: "n", text: Math.round(r.secs / total * 100) + "%" }), cell);
   });
-  el.replaceChildren(h("table", {}, h("thead", {}, head), h("tbody", {}, body)));
+  // Show the top rows and scroll the rest; keep the scroll position across auto-refresh.
+  const scrollTop = el.querySelector(".tscroll")?.scrollTop || 0;
+  const wrap = h("div", { class: "tscroll" }, h("table", {}, h("thead", {}, head), h("tbody", {}, body)));
+  el.replaceChildren(wrap);
+  if (body.length > TABLE_ROWS) wrap.style.maxHeight = body[TABLE_ROWS].offsetTop + "px";
+  wrap.scrollTop = scrollTop;
 }
 
 function renderHeat(d) {
@@ -612,35 +964,179 @@ async function post(path, body) {
   if (!r.ok) throw new Error("HTTP " + r.status);
 }
 
+const ALERT_STYLES = {
+  banner: "Notification (top right, may be hidden by Focus)",
+  dialog: "System dialog (closes itself after 2 min)",
+  overlay: "Floating card (stays until you close it)",
+};
+
+/* Personal time: nothing is recorded and alerts wait until it ends. */
+function renderPersonal() {
+  if (!data) return;
+  const el = $("personal"), p = data.personal, run = p.running;
+  const today = p.today_secs > 0 ? `${dur(p.today_secs)} today` : "";
+  if (run) {
+    const left = run.end - Date.now() / 1000;
+    if (left <= 0) { load(); return; }
+    el.className = "personal on";
+    el.title = `Ends at ${clock(run.end)}${today ? ` · ${today}` : ""}`;
+    el.replaceChildren(h("span", { text: `Personal time · ${dur(left)} left` }),
+      h("button", { class: "btn", text: "End", onclick: async () => { await post("/api/personal", { minutes: 0 }); load(); } }));
+  } else {
+    el.className = "personal";
+    el.title = today ? `Personal time: ${today}` : "Pause tracking and alerts for a while";
+    el.replaceChildren(h("span", { text: "Personal time" }),
+      ...data.settings.personal_time_minutes.map(m => h("button", { class: "btn", text: `${m}m`, onclick: async () => { await post("/api/personal", { minutes: m }); load(); } })));
+  }
+}
+setInterval(renderPersonal, 15000);
+
+/* To-dos. Today holds open items planned for today or earlier (unfinished ones carry
+   over) plus what was ticked off today; Tomorrow holds items for later days. Text typed
+   but not added, and an edit in progress, live in todoDraft / todoEdit so the 30-second
+   auto-refresh doesn't discard them. */
+const TODO_MAX = 1000;
+const todoDraft = { today: "", tomorrow: "" };
+let todoEdit = null;   // { id, value } while an item is being edited
+
+async function changeTodo(action, body) {
+  await post("/api/todo", { action, ...body });
+  load();
+}
+
+function finishTodoEdit(item, save) {
+  const text = todoEdit.value.trim();
+  todoEdit = null;
+  if (save && text && text !== item.text) changeTodo("edit", { id: item.id, text });
+  else renderSide(data);
+}
+
+function todoItem(item, list, today) {
+  const dropped = item.dropped === 1 || item.dropped === true, done = !!item.done_at && !dropped;
+  const box = h("input", { type: "checkbox", checked: done, "aria-label": done ? "Mark as not done" : "Mark as done",
+    onchange: () => changeTodo(done ? "undo" : "done", { id: item.id }) });
+  const text = todoEdit && todoEdit.id === item.id
+    ? textBox({ class: "todo-edit", "data-key": `edit-${item.id}`, maxlength: TODO_MAX, rows: 1, "aria-label": "Edit to-do",
+        oninput: e => { todoEdit.value = e.target.value; },
+        onblur: () => { if (todoEdit && todoEdit.id === item.id) finishTodoEdit(item, true); },
+        onkeydown: e => {
+          if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); finishTodoEdit(item, true); }
+          else if (e.key === "Escape") finishTodoEdit(item, false);
+        } }, todoEdit.value)
+    : h("span", { class: "todo-text", title: "Double-click to edit",
+        ondblclick: e => { if (e.target.closest("a")) return; todoEdit = { id: item.id, value: item.text }; renderSide(data); } },
+        linkify(item.text));
+  const carried = list === "today" && item.for_day < today;
+  const later = list === "tomorrow" && item.for_day > addDays(today, 1);
+  const tag = carried || later ? h("span", { class: "todo-since", text: `${carried ? "since" : "for"} ${dayName(item.for_day, { weekday: "short" })}` }) : null;
+  const target = list === "today" ? "tomorrow" : "today";
+  const open = !item.done_at;
+  return h("li", { class: "todo" + (done ? " done" : "") + (dropped ? " dropped" : "") }, box, text, tag,
+    h("span", { class: "todo-acts" },
+      open ? h("button", { class: "todo-act", text: list === "today" ? "\u2192" : "\u2190", title: `Move to ${target}`, "aria-label": `Move to ${target}`,
+        onclick: () => changeTodo("move", { id: item.id, for: target }) }) : null,
+      open ? h("button", { class: "todo-act done-act", text: "\u2713", title: "Mark as done", "aria-label": "Mark as done",
+        onclick: () => changeTodo("done", { id: item.id }) }) : null,
+      dropped ? h("button", { class: "todo-act", text: "\u21ba", title: "Restore", "aria-label": "Restore",
+        onclick: () => changeTodo("undo", { id: item.id }) }) : null,
+      open ? null : binButton(item)));
+}
+
+/* Text with http(s) URLs turned into links that open in a new tab. Trailing
+   punctuation stays outside the link. */
+const URL_RE = /https?:\/\/[^\s<>"]+/g;
+function linkify(text) {
+  const parts = [];
+  let last = 0;
+  for (const m of text.matchAll(URL_RE)) {
+    const url = m[0].replace(/[.,;:!?)\]]+$/, "");
+    parts.push(text.slice(last, m.index), h("a", { href: url, target: "_blank", rel: "noopener noreferrer", text: url }));
+    last = m.index + url.length;
+  }
+  parts.push(text.slice(last));
+  return parts;
+}
+
+/* Deletes a done or dropped item for good. */
+function binButton(item) {
+  const btn = h("button", { class: "todo-act bin", title: "Delete for good", "aria-label": "Delete for good",
+    onclick: () => changeTodo("delete", { id: item.id }) });
+  btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.8 6.8v4.4M9.2 6.8v4.4"/></svg>';
+  return btn;
+}
+
+function addTodo(list, text, split = false) {
+  if (!text.trim()) return;
+  todoDraft[list] = "";
+  changeTodo("add", { text, for: list, split });
+}
+
+function textBox(props, value) {
+  const box = h("textarea", props);
+  box.value = value;
+  return box;
+}
+
+/* Enter adds the item and Shift+Enter starts a new line in it. Pasting a list into an
+   empty box adds one item per line. */
+function todoAdder(list) {
+  return textBox({ class: "todo-add", "data-key": `add-${list}`, rows: 1, maxlength: TODO_MAX, "aria-label": `Add a to-do for ${list}`,
+    placeholder: `Add a to-do for ${list} (Enter to add, Shift+Enter for a new line)`,
+    oninput: e => { todoDraft[list] = e.target.value; },
+    onpaste: e => {
+      const pasted = e.clipboardData.getData("text");
+      if (pasted.includes("\n") && !e.target.value.trim()) { e.preventDefault(); addTodo(list, pasted, true); }
+    },
+    onkeydown: e => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); addTodo(list, e.target.value); }
+    } }, todoDraft[list]);
+}
+
+function todoGroup(title, items, list, today) {
+  return h("div", { class: "todo-group" }, h("b", { text: title }),
+    h("ul", { class: "todos" }, items.map(item => todoItem(item, list, today))), todoAdder(list));
+}
+
 function renderSide(d) {
   const el = $("side"), t = d.timeline, kids = [];
   const isToday = d.to === d.today;
-  if (isToday && d.first_step) {
-    kids.push(h("div", { class: "step-card" }, h("b", { text: "Your first step today" }), h("span", { text: d.first_step.text }), h("div", { class: "sub", text: `Written ${dayName(d.first_step.day)}` })));
-  }
+  // Re-rendering replaces the inputs; put focus and the caret back where they were.
+  const focused = document.activeElement?.dataset?.key, caret = document.activeElement?.selectionStart;
   if (isToday) {
-    if (t.closed_at) {
-      kids.push(h("div", { class: "step-card" }, h("b", { text: `Day closed at ${clock(t.closed_at)}` }),
-        h("span", { text: t.note ? `Tomorrow: ${t.note}` : "No note saved." }),
-        h("div", { class: "row-actions" }, h("button", { class: "btn", text: "Reopen day", onclick: async () => { await post("/api/close", { reopen: true }); load(); } }))));
-    } else {
-      // Auto-refresh re-renders this panel; carry over a draft being typed.
-      const prev = $("note");
-      const ta = h("textarea", { id: "note", maxlength: 300, placeholder: "Tomorrow's first step: what, and when will you start?", "aria-label": "Tomorrow's first step" });
-      if (prev) {
-        ta.value = prev.value;
-        if (document.activeElement === prev) requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(prev.selectionStart, prev.selectionEnd); });
-      }
-      kids.push(h("div", {}, h("h2", { text: "Close the day" }),
-        h("p", { class: "sub", text: "A specific plan frees your head for the evening. Time counted after you close is after hours." }), ta,
-        h("div", { class: "row-actions" }, h("button", { class: "btn primary", text: "Save and close day", onclick: async () => { await post("/api/close", { note: ta.value.trim() }); load(); } }))));
-    }
+    const { today: todayItems, tomorrow } = d.todos;
+    const doneCount = todayItems.filter(item => item.done_at && !item.dropped).length;
+    kids.push(h("div", { class: "ph" }, h("h2", { text: "To-do" }),
+      h("span", { class: "sub", text: todayItems.length ? `${doneCount} of ${todayItems.length} done today` : "" })));
+    kids.push(todoGroup("Today", todayItems, "today", d.today), todoGroup("Tomorrow", tomorrow, "tomorrow", d.today));
+    kids.push(t.closed_at
+      ? h("div", { class: "row-actions" },
+          h("span", { class: "sub", text: `Day closed at ${clock(t.closed_at)}; time since counts as after hours.` }),
+          h("button", { class: "btn", text: "Reopen day", onclick: async () => { await post("/api/close", { reopen: true }); load(); } }))
+      : h("div", { class: "row-actions" },
+          h("button", { class: "btn primary", text: "Close the day", onclick: async () => { await post("/api/close", {}); load(); } }),
+          h("span", { class: "sub", text: "Time after closing counts as after hours." })));
+  } else if (d.done_on_day.length) {
+    kids.push(h("div", { class: "ph" }, h("h2", { text: `Done on ${dayName(t.day, { weekday: "long" })}` })),
+      h("ul", { class: "todos" }, d.done_on_day.map(item => h("li", { class: item.dropped ? "todo dropped" : "todo done" },
+        h("span", { class: "todo-text" }, linkify(item.text)), h("span", { class: "todo-since", text: item.dropped ? "dropped" : clock(item.done_at) })))));
   }
-  const list = h("ul", { class: "alerts" });
+  const list = $("alerts");
+  list.replaceChildren();
   if (!d.alerts.length) list.append(h("li", { class: "empty", text: "No alerts in this range." }));
   d.alerts.forEach(a => list.append(h("li", {}, h("time", { text: `${dayName(fmtDate(new Date(a.ts * 1000)), { weekday: "short" })} ${clock(a.ts)}` }), h("span", { text: a.message }))));
-  kids.push(h("div", { style: kids.length ? "margin-top:18px" : "" }, h("h2", { text: "Alerts", style: "margin-bottom:6px" }), list));
   el.replaceChildren(...kids);
+  const refocus = el.querySelector(`[data-key="${focused || (todoEdit ? `edit-${todoEdit.id}` : "")}"]`);
+  if (refocus) {
+    refocus.focus();
+    if (focused && caret != null) refocus.setSelectionRange(caret, caret);
+  }
+  // Past days with nothing done have nothing to show; let the heatmap and alerts take the whole row.
+  el.hidden = !kids.length;
+  for (const id of ["heatPanel", "alertsPanel"]) {
+    $(id).classList.toggle("s8", kids.length > 0);
+    $(id).classList.toggle("s12", !kids.length);
+  }
 }
 
 /* ---------- toolbar events ---------- */
@@ -654,11 +1150,17 @@ function stepBy(dir) {
 }
 $("prev").addEventListener("click", () => stepBy(-1));
 $("next").addEventListener("click", () => stepBy(1));
+document.addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest("input, textarea, select, dialog")) return;
+  if (e.key === "ArrowLeft") { e.preventDefault(); $("prev").click(); }
+  else if (e.key === "ArrowRight" && !$("next").disabled) { e.preventDefault(); $("next").click(); }
+});
 $("fApp").addEventListener("change", e => { state.app = e.target.value; load(); });
 $("fDomain").addEventListener("change", e => { state.domain = e.target.value; load(); });
 $("fScope").addEventListener("change", e => { state.scope = e.target.value; load(); });
 $("cmp").addEventListener("change", e => { state.compare = e.target.checked; if (data) { renderToolbar(data); renderKpis(data); renderTable($("apps"), data.by_app, data, "app"); renderTable($("domains"), data.by_domain, data, "domain"); } });
 $("refresh").addEventListener("click", load);
+document.querySelectorAll("#dsSeg button").forEach(b => b.addEventListener("click", () => switchDataset(b.dataset.ds)));
 
 $("export").addEventListener("click", () => {
   if (!data) return;
@@ -680,8 +1182,11 @@ $("settings").addEventListener("click", () => {
   $("gDT").value = g.goals.daily_target_hours; $("gDC").value = g.goals.daily_ceiling_hours;
   $("gWT").value = g.goals.weekly_target_hours; $("gWC").value = g.goals.weekly_ceiling_hours;
   $("wS").value = g.work_start; $("wE").value = g.work_end; $("plan").value = g.shutdown_plan;
-  $("brk").value = g.alerts.continuous_work_minutes; $("idl").value = g.idle_threshold_minutes;
-  $("aOn").checked = g.alerts.enabled; $("aDlg").checked = g.alerts.dialogs_for_important;
+  $("brk").value = g.alerts.continuous_work_minutes; $("idl").value = g.idle_threshold_minutes; $("tlM").value = g.timeline_merge_minutes;
+  $("early").value = g.alerts.early_start_from;
+  $("aOn").checked = g.alerts.enabled;
+  for (const [id, key] of [["rSty", "routine_style"], ["iSty", "important_style"]])
+    $(id).replaceChildren(...Object.entries(ALERT_STYLES).map(([v, label]) => h("option", { value: v, selected: v === g.alerts[key], text: label })));
   $("wD").replaceChildren(...weekOrder().map(i =>
     h("label", {}, h("input", { type: "checkbox", value: i, checked: g.work_days.includes(i) }), DAY_NAMES[i])));
   $("wkS").replaceChildren(...weekOrder().map(i => h("option", { value: i, selected: i === g.week_starts_on, text: DAY_NAMES[i] })));
@@ -689,20 +1194,203 @@ $("settings").addEventListener("click", () => {
   dlg.showModal();
 });
 $("dCancel").addEventListener("click", e => { e.preventDefault(); dlg.close(); });
+$("testR").addEventListener("click", () => post("/api/test-alert", { style: $("rSty").value }));
+$("testI").addEventListener("click", () => post("/api/test-alert", { style: $("iSty").value }));
 $("form").addEventListener("submit", async e => {
   e.preventDefault();
   const body = {
     goals: { daily_target_hours: +$("gDT").value, daily_ceiling_hours: +$("gDC").value, weekly_target_hours: +$("gWT").value, weekly_ceiling_hours: +$("gWC").value },
     work_start: $("wS").value, work_end: $("wE").value, shutdown_plan: $("plan").value,
     idle_threshold_minutes: +$("idl").value,
+    timeline_merge_minutes: +$("tlM").value,
     work_days: [...document.querySelectorAll("#wD input:checked")].map(i => +i.value),
     week_starts_on: +$("wkS").value,
     day_starts_at_hour: +$("dSH").value,
-    alerts: { enabled: $("aOn").checked, dialogs_for_important: $("aDlg").checked, continuous_work_minutes: +$("brk").value },
+    alerts: { enabled: $("aOn").checked, routine_style: $("rSty").value, important_style: $("iSty").value, continuous_work_minutes: +$("brk").value, early_start_from: $("early").value },
   };
   try { await post("/api/config", body); weekStart = body.week_starts_on; dlg.close(); load(); }
   catch (err) { alert("Could not save. Check that times and numbers are valid."); }
 });
+
+/* ---------- textareas grow with their text ---------- */
+if (!CSS.supports("field-sizing", "content")) {
+  const grow = ta => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; };
+  document.addEventListener("input", e => { if (e.target.tagName === "TEXTAREA") grow(e.target); });
+  new MutationObserver(() => document.querySelectorAll("textarea").forEach(grow)).observe(document.body, { childList: true, subtree: true });
+}
+
+/* ---------- Ask Claude panel ----------
+   Each message runs the local `claude` CLI in the tracker folder (with its CLAUDE.md);
+   the session id lets later messages resume the same conversation. */
+const CHAT_KEY = "wt-chat", CHAT_NARROW = 380, CHAT_KEEP = 200;
+let chatDataset = "real";
+const chatKey = () => chatDataset === "real" ? CHAT_KEY : `${CHAT_KEY}:${chatDataset}`;
+/* Chat persistence is optional: unreadable or malformed storage starts a fresh chat. */
+function readChat() {
+  const fresh = { open: false, width: CHAT_NARROW, session: null, msgs: [] };
+  try {
+    const saved = JSON.parse(localStorage.getItem(chatKey()) || "{}");
+    return {
+      open: saved.open === true,
+      width: Number.isFinite(saved.width) ? saved.width : CHAT_NARROW,
+      session: typeof saved.session === "string" ? saved.session : null,
+      msgs: Array.isArray(saved.msgs) ? saved.msgs.filter(m => m && typeof m.text === "string" && typeof m.role === "string") : [],
+    };
+  } catch { return fresh; }
+}
+let chat = readChat();
+let chatAbort = null;
+const saveChat = () => {
+  chat.msgs = chat.msgs.slice(-CHAT_KEEP);
+  try { localStorage.setItem(chatKey(), JSON.stringify(chat)); } catch { /* storage full or blocked: keep it in memory */ }
+};
+
+/* Swap to the chat history and Claude session that belong to the shown dataset,
+   keeping the panel's open state and width. */
+function useChatFor(name) {
+  if (name === chatDataset) return;
+  chatAbort?.abort();
+  saveChat();
+  const { open, width } = chat;
+  chatDataset = name;
+  chat = { ...readChat(), open, width };
+  renderChat();
+}
+
+const esc = t => t.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const inline = t => esc(t)
+  .replace(/`([^`]+)`/g, "<code>$1</code>")
+  .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+  .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+  .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>");
+function markdown(text) {
+  const out = [], lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("```")) {
+      const code = [];
+      while (++i < lines.length && !lines[i].startsWith("```")) code.push(lines[i]);
+      out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
+    } else if (/^\s*\|/.test(line)) {
+      const rows = [];
+      for (; i < lines.length && /^\s*\|/.test(lines[i]); i++)
+        if (!/^\s*\|[\s|:-]+\|?\s*$/.test(lines[i])) rows.push(lines[i].trim().replace(/^\||\|$/g, "").split("|"));
+      i--;
+      out.push("<table>" + rows.map((r, n) => "<tr>" + r.map(c => n ? `<td>${inline(c.trim())}</td>` : `<td><b>${inline(c.trim())}</b></td>`).join("") + "</tr>").join("") + "</table>");
+    } else if (/^\s*([-*]|\d+\.)\s/.test(line)) {
+      const ordered = /^\s*\d+\./.test(line), items = [];
+      for (; i < lines.length && /^\s*([-*]|\d+\.)\s/.test(lines[i]); i++) items.push(`<li>${inline(lines[i].replace(/^\s*([-*]|\d+\.)\s/, ""))}</li>`);
+      i--;
+      out.push(ordered ? `<ol>${items.join("")}</ol>` : `<ul>${items.join("")}</ul>`);
+    } else if (/^#{1,6}\s/.test(line)) {
+      out.push(`<h3>${inline(line.replace(/^#+\s/, ""))}</h3>`);
+    } else if (line.trim()) {
+      const para = [line];
+      while (i + 1 < lines.length && lines[i + 1].trim() && !/^(\s*([-*|]|\d+\.)\s?|#|```)/.test(lines[i + 1])) para.push(lines[++i]);
+      out.push(`<p>${para.map(inline).join("<br>")}</p>`);
+    }
+  }
+  return out.join("");
+}
+
+function chatMsgEl(m) {
+  if (m.role === "user") return h("div", { class: "msg user", text: m.text });
+  if (m.role === "tool") return h("div", { class: "chat-tool", text: "· " + m.text });
+  if (m.role === "error") return h("div", { class: "msg err", text: m.text });
+  const el = h("div", { class: "msg bot" });
+  el.innerHTML = markdown(m.text);   // markdown() escapes all text before adding tags
+  return el;
+}
+
+function renderChat() {
+  const log = $("chatLog");
+  document.documentElement.style.setProperty("--chat-w", chat.width + "px");
+  $("chat").hidden = !chat.open;
+  document.body.classList.toggle("chat-open", chat.open && innerWidth > chat.width + 600);
+  $("chatBtn").setAttribute("aria-expanded", chat.open);
+  $("chatBtn").hidden = chat.open;
+  $("chat").classList.toggle("busy", !!chatAbort);
+  $("chatSend").textContent = chatAbort ? "Stop" : "Send";
+  if (!chat.msgs.length) {
+    log.replaceChildren(h("div", { class: "chat-hints" },
+      h("span", { class: "sub", text: "Claude reads your tracker data and can manage your to-dos and close or reopen the day, nothing else. Questions and the data it reads go to Anthropic under your Claude account." }),
+      ...["How did this week go?", "When do I lose focus?", "What's left on my to-do list?", "How much of today was meetings?"]
+        .map(q => h("button", { class: "btn", text: q, onclick: () => sendChat(q) }))));
+    return;
+  }
+  log.replaceChildren(...chat.msgs.map(chatMsgEl));
+  if (chatAbort) {
+    const dots = h("div", { class: "chat-thinking" });
+    dots.innerHTML = document.querySelector("#chatBtn .clawd").outerHTML;
+    log.append(dots);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat(text) {
+  text = text.trim();
+  if (!text || chatAbort) return;
+  $("chatInput").value = "";
+  chat.msgs.push({ role: "user", text });
+  let bot = null;
+  const add = m => { chat.msgs.push(m); return m; };
+  chatAbort = new AbortController();
+  renderChat();
+  try {
+    const r = await fetch("/api/chat", { method: "POST", signal: chatAbort.signal,
+      headers: { "Content-Type": "application/json", "X-WT": "1" },
+      body: JSON.stringify({ message: text, session_id: chat.session }) });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      const parts = buf.split("\n");
+      buf = parts.pop();
+      for (const part of parts) {
+        if (!part) continue;
+        const ev = JSON.parse(part);
+        if (ev.t === "session" || (ev.t === "done" && ev.id)) chat.session = ev.id;
+        if (ev.t === "text") (bot ||= add({ role: "bot", text: "" })).text += ev.d;
+        else if (ev.t === "block") bot = null;
+        else if (ev.t === "tool") { add({ role: "tool", text: ev.d }); bot = null; }
+        else if (ev.t === "error" || (ev.t === "done" && ev.error)) add({ role: "error", text: ev.d || ev.result || "Claude stopped with an error." });
+      }
+      renderChat();
+    }
+  } catch (err) {
+    if (err.name !== "AbortError") add({ role: "error", text: "Could not reach Claude: " + err.message });
+  } finally {
+    chatAbort = null;
+    saveChat();
+    renderChat();
+    load();
+    $("chatInput").focus();
+  }
+}
+
+$("chatBtn").addEventListener("click", () => { chat.open = !chat.open; saveChat(); renderChat(); if (chat.open) $("chatInput").focus(); });
+$("chatClose").addEventListener("click", () => { chat.open = false; saveChat(); renderChat(); });
+$("chatNew").addEventListener("click", () => { chatAbort?.abort(); chat.session = null; chat.msgs = []; saveChat(); renderChat(); $("chatInput").focus(); });
+$("chatWide").addEventListener("click", () => {
+  chat.width = chat.width > CHAT_NARROW ? CHAT_NARROW : Math.round(Math.min(900, innerWidth * 0.6));
+  saveChat(); renderChat();
+});
+$("chatForm").addEventListener("submit", e => { e.preventDefault(); chatAbort ? chatAbort.abort() : sendChat($("chatInput").value); });
+$("chatInput").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("chatForm").requestSubmit(); }
+});
+$("chatGrip").addEventListener("pointerdown", e => {
+  const grip = e.target;
+  grip.setPointerCapture(e.pointerId);
+  const move = ev => { chat.width = Math.round(Math.max(280, Math.min(innerWidth * 0.9, innerWidth - ev.clientX))); renderChat(); };
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", () => { grip.removeEventListener("pointermove", move); saveChat(); }, { once: true });
+});
+addEventListener("resize", renderChat);
+renderChat();
 
 readHash();
 load();
