@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Work tracker</title>
+<style>
+  /* Palette: Okabe-Ito, chosen to stay distinguishable for colour-blind viewers.
+     Status is also encoded by shape (circle, triangle, square) and text. */
+  :root {
+    --bg: #f2f4f7; --panel: #ffffff; --ink: #1a2030; --muted: #5b6678;
+    --line: #dce1e9; --grid: #e9edf2; --zone-in: #eef5fb; --zone-off: #f6f7f9;
+    --data: #0072b2; --after: #cc79a7;
+    --ok: #009e73; --warn: #e69f00; --over: #d55e00;
+    --ok-text: #006b4f; --warn-text: #7a5000; --over-text: #a13f00;
+    --font: ui-sans-serif, -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f131a; --panel: #171c25; --ink: #e7eaf0; --muted: #98a2b3;
+      --line: #2a3140; --grid: #222936; --zone-in: #1a2431; --zone-off: #141922;
+      --data: #56b4e9; --after: #e48cc0;
+      --ok: #2fc79a; --warn: #f0b429; --over: #f07c3a;
+      --ok-text: #5fe0b9; --warn-text: #f5c75a; --over-text: #f59a64;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font);
+         font-variant-numeric: tabular-nums; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--data); outline-offset: 2px; }
+
+  /* toolbar */
+  .toolbar { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .toolbar-in { max-width: 1240px; margin: 0 auto; padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  .brand { font-weight: 650; margin-right: 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--panel); }
+  .seg button { border: 0; background: none; padding: 5px 11px; cursor: pointer; border-right: 1px solid var(--line); }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: var(--data); color: #fff; }
+  @media (prefers-color-scheme: dark) { .seg button[aria-pressed="true"] { color: #0b1118; } }
+  .step { display: inline-flex; align-items: center; gap: 4px; }
+  .step button, .btn { border: 1px solid var(--line); background: var(--panel); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+  .step button:disabled { opacity: .4; cursor: default; }
+  .btn:hover, .step button:not(:disabled):hover { border-color: var(--data); }
+  .btn.primary { background: var(--data); border-color: var(--data); color: #fff; }
+  @media (prefers-color-scheme: dark) { .btn.primary { color: #0b1118; } }
+  .range-label { min-width: 150px; text-align: center; font-weight: 550; }
+  .filters { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .filters label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  .filters select { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; max-width: 170px; }
+  .filters select.on { border-color: var(--data); box-shadow: inset 0 0 0 1px var(--data); }
+  .spacer { flex: 1; }
+  .updated { color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .pulse.live { background: var(--ok); }
+
+  main { max-width: 1240px; margin: 0 auto; padding: 16px 20px 56px; display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+  .s12 { grid-column: span 12; } .s8 { grid-column: span 8; } .s6 { grid-column: span 6; } .s4 { grid-column: span 4; }
+  @media (max-width: 960px) { .s8, .s6, .s4 { grid-column: span 12; } }
+  .ph { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  h2 { font-size: 14px; font-weight: 650; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .empty { color: var(--muted); padding: 18px 0; }
+  .banner { grid-column: span 12; border: 1px solid var(--over); color: var(--over-text); border-radius: 8px; padding: 10px 14px; background: color-mix(in srgb, var(--over) 10%, var(--panel)); }
+
+  /* status chips: shape + text, not colour alone */
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 1px 9px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .chip::before { content: ""; width: 7px; height: 7px; background: currentColor; }
+  .chip.ok { color: var(--ok-text); border-color: color-mix(in srgb, var(--ok) 50%, transparent); background: color-mix(in srgb, var(--ok) 11%, transparent); }
+  .chip.ok::before { border-radius: 50%; }
+  .chip.warn { color: var(--warn-text); border-color: color-mix(in srgb, var(--warn) 55%, transparent); background: color-mix(in srgb, var(--warn) 13%, transparent); }
+  .chip.warn::before { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+  .chip.over { color: var(--over-text); border-color: color-mix(in srgb, var(--over) 55%, transparent); background: color-mix(in srgb, var(--over) 12%, transparent); }
+
+  /* timeline */
+  .ribbon svg { width: 100%; height: auto; display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .legend i { display: inline-block; width: 12px; height: 8px; margin-right: 6px; border-radius: 2px; vertical-align: middle; }
+  .legend i.line { height: 0; border-top: 2px dashed; border-radius: 0; width: 14px; }
+
+  /* kpis */
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); padding: 0; }
+  .kpi { padding: 14px 16px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .kpi:first-child { border-left: 0; }
+  .kpi .l { color: var(--muted); font-size: 12px; }
+  .kpi .v { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; }
+  .kpi .v small { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .kpi .d { font-size: 12px; color: var(--muted); min-height: 17px; }
+  .kpi .d.bad { color: var(--warn-text); }
+  @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, 1fr); } .kpi:nth-child(4) { border-left: 0; } .kpi:nth-child(n+4) { border-top: 1px solid var(--line); } }
+  @media (max-width: 620px) { .kpis { grid-template-columns: repeat(2, 1fr); } .kpi:nth-child(odd) { border-left: 0; } .kpi:nth-child(n+3) { border-top: 1px solid var(--line); } .kpi:nth-child(4) { border-left: 1px solid var(--line); } }
+
+  svg text { font-family: var(--font); fill: var(--muted); font-size: 11px; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .bar-hit { fill: transparent; cursor: pointer; }
+  .bar-hit:hover { fill: color-mix(in srgb, var(--data) 8%, transparent); }
+
+  /* weekly pace */
+  .wk-big { font-size: 22px; font-weight: 650; }
+  .track { position: relative; height: 12px; border-radius: 6px; background: var(--grid); margin: 22px 0 28px; }
+  .track .fill { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: var(--data); }
+  .track .fill.warn { background: var(--warn); } .track .fill.over { background: var(--over); }
+  .track .tick { position: absolute; top: -5px; bottom: -5px; width: 2px; background: var(--ink); opacity: .55; }
+  .track .tick span { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .track .tick.exp { background: none; width: 0; top: -9px; }
+  .track .tick.exp::before { content: ""; position: absolute; left: -5px; top: 0; border: 5px solid transparent; border-top: 7px solid var(--ink); }
+  .track .tick.exp span { top: -22px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 12px; }
+  .kv { display: flex; flex-direction: column; gap: 8px; }
+
+  /* tables */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 550; font-size: 12px; color: var(--muted); padding: 0 0 6px; border-bottom: 1px solid var(--line); }
+  td { padding: 7px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  th.n, td.n { text-align: right; padding-left: 12px; white-space: nowrap; }
+  td .link { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  td .link:hover { color: var(--data); text-decoration: underline; }
+  td .nm { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  td .ico { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: contain; }
+  tr.sel td { background: color-mix(in srgb, var(--data) 9%, transparent); }
+  .mini { height: 4px; background: var(--grid); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  .mini i { display: block; height: 100%; background: var(--data); }
+  .up { color: var(--warn-text); } .flat { color: var(--muted); }
+
+  /* heatmap */
+  .heat { display: grid; grid-template-columns: 34px repeat(24, 1fr); gap: 2px; }
+  .heat .c { height: 20px; border-radius: 3px; background: var(--grid); }
+  .heat .rl, .heat .cl { font-size: 11px; color: var(--muted); align-self: center; }
+  .heat .cl { grid-column: span 6; padding-top: 4px; }
+
+  /* side panel */
+  .step-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 12px; background: color-mix(in srgb, var(--data) 5%, transparent); }
+  .step-card b { display: block; font-weight: 600; margin-bottom: 2px; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); padding: 8px; }
+  .row-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  ul.alerts { list-style: none; margin: 0; padding: 0; }
+  ul.alerts li { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--grid); }
+  ul.alerts time { color: var(--muted); white-space: nowrap; }
+
+  dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); padding: 0; width: min(560px, 94vw); }
+  dialog::backdrop { background: rgba(10, 14, 20, .5); }
+  dialog form { padding: 20px; display: grid; gap: 14px; }
+  dialog h2 { font-size: 16px; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px 12px; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  legend { font-weight: 600; padding: 0 6px; }
+  .f { display: grid; gap: 3px; } .f.full { grid-column: span 2; }
+  .f label { color: var(--muted); font-size: 12px; }
+  .f input[type=number], .f input[type=time], .f input[type=text], .f select { border: 1px solid var(--line); border-radius: 7px; background: var(--panel); padding: 6px 8px; width: 100%; }
+  .days { display: flex; gap: 10px; flex-wrap: wrap; }
+  .days label { display: inline-flex; gap: 4px; align-items: center; color: var(--ink); font-size: 13px; }
+  .checks { display: grid; gap: 6px; grid-column: span 2; }
+  .hint { font-size: 12px; color: var(--muted); grid-column: span 2; }
+  .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+</head>
+<body>
+<header class="toolbar">
+  <div class="toolbar-in">
+    <span class="brand">Work tracker</span>
+    <div class="seg" id="ranges" role="group" aria-label="Time range">
+      <button data-r="today">Today</button>
+      <button data-r="yesterday">Yesterday</button>
+      <button data-r="week">This week</button>
+      <button data-r="lastweek">Last week</button>
+      <button data-r="30d">30 days</button>
+    </div>
+    <div class="step">
+      <button id="prev" aria-label="Previous period">&lsaquo;</button>
+      <span class="range-label" id="rangeLabel"></span>
+      <button id="next" aria-label="Next period">&rsaquo;</button>
+    </div>
+    <div class="filters">
+      <label>App <select id="fApp"></select></label>
+      <label>Website <select id="fDomain"></select></label>
+      <label>Hours <select id="fScope">
+        <option value="all">All hours</option>
+        <option value="in">Work hours</option>
+        <option value="after">After hours</option>
+      </select></label>
+      <label><input type="checkbox" id="cmp" checked> Compare to previous</label>
+    </div>
+    <span class="spacer"></span>
+    <span class="updated"><span class="pulse" id="pulse"></span><span id="updated">Loading</span></span>
+    <button class="btn" id="refresh">Refresh</button>
+    <button class="btn" id="export">Export CSV</button>
+    <button class="btn" id="settings">Goals &amp; settings</button>
+  </div>
+</header>
+
+<main id="main">
+  <div class="banner" id="banner" hidden></div>
+
+  <section class="panel s12" aria-labelledby="tlTitle">
+    <div class="ph"><h2 id="tlTitle">Day timeline</h2><span class="sub" id="tlSub"></span></div>
+    <div class="ribbon" id="ribbon"></div>
+    <div class="legend" id="tlLegend"></div>
+  </section>
+
+  <section class="panel kpis s12" id="kpis" aria-label="Key figures"></section>
+
+  <section class="panel s8">
+    <div class="ph"><h2>Active time per day</h2><span class="sub" id="dailySub"></span></div>
+    <div class="chart" id="daily"></div>
+    <div class="legend">
+      <span><i style="background:var(--data)"></i>Work hours</span>
+      <span><i style="background:var(--after)"></i>After hours</span>
+      <span><i class="line" style="color:var(--ok)"></i>Daily target</span>
+      <span><i class="line" style="color:var(--over)"></i>Daily limit</span>
+    </div>
+  </section>
+
+  <section class="panel s4" id="week" aria-label="Weekly pace"></section>
+
+  <section class="panel s6"><div class="ph"><h2>Applications</h2><span class="sub">Click a row to filter</span></div><div id="apps"></div></section>
+  <section class="panel s6"><div class="ph"><h2>Websites</h2><span class="sub">Browser tabs in front</span></div><div id="domains"></div></section>
+
+  <section class="panel s8">
+    <div class="ph"><h2>When you work</h2><span class="sub">Weekday by hour. Pink marks after-hours slots.</span></div>
+    <div class="heat" id="heat"></div>
+  </section>
+
+  <section class="panel s4" id="side"></section>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="form">
+    <h2>Goals &amp; settings</h2>
+    <fieldset>
+      <legend>Goals (active hours)</legend>
+      <div class="f"><label for="gDT">Daily target</label><input type="number" id="gDT" step="0.25" min="0" max="24"></div>
+      <div class="f"><label for="gDC">Daily limit</label><input type="number" id="gDC" step="0.25" min="0" max="24"></div>
+      <div class="f"><label for="gWT">Weekly target</label><input type="number" id="gWT" step="0.5" min="0" max="168"></div>
+      <div class="f"><label for="gWC">Weekly limit</label><input type="number" id="gWC" step="0.5" min="0" max="168"></div>
+      <p class="hint">WHO and ILO link regular weeks of 55 hours or more to higher stroke and heart-disease risk. Tracked active time is lower than time at the desk, so set limits well below that line.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Work window</legend>
+      <div class="f"><label for="wS">Start</label><input type="time" id="wS"></div>
+      <div class="f"><label for="wE">End</label><input type="time" id="wE"></div>
+      <div class="f full"><label>Work days</label><div class="days" id="wD"></div></div>
+      <div class="f"><label for="wkS">Week starts on</label><select id="wkS"></select></div>
+      <div class="f"><label for="dSH">Day starts at</label><select id="dSH"></select></div>
+      <p class="hint">Activity outside this window, on other days, or after you close the day counts as after hours. Activity before the day start counts toward the previous day.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Alerts</legend>
+      <div class="f full"><label for="plan">Your shutdown plan (finishes the sentence "If it's the end of the day, then I will...")</label><input type="text" id="plan" maxlength="200"></div>
+      <div class="f"><label for="brk">Break reminder after (minutes)</label><input type="number" id="brk" min="10" max="480" step="5"></div>
+      <div class="f"><label for="idl">Count as away after (minutes idle)</label><input type="number" id="idl" min="1" max="60"></div>
+      <div class="checks">
+        <label><input type="checkbox" id="aOn"> Alerts on</label>
+        <label><input type="checkbox" id="aDlg"> Pop-up dialogs for limits and wind-down (otherwise quiet notifications)</label>
+      </div>
+    </fieldset>
+    <div class="dlg-actions">
+      <button class="btn" value="cancel" id="dCancel">Cancel</button>
+      <button class="btn primary" value="save" id="dSave">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+const h = (tag, props = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat()) if (c != null) e.append(c);
+  return e;
+};
+const s = (tag, props = {}, ...kids) => {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(props)) { if (k === "text") e.textContent = v; else e.setAttribute(k, v); }
+  for (const c of kids.flat()) if (c != null) e.append(c);
+  return e;
+};
+
+/* ---------- formatting & dates ---------- */
+const pad = n => String(n).padStart(2, "0");
+const dur = secs => { const m = Math.round(secs / 60), hh = Math.floor(m / 60); return hh ? `${hh}h ${pad(m % 60)}m` : `${m}m`; };
+const hrs = v => (Math.round(v * 10) / 10) + "h";
+const clock = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const toDate = k => new Date(k + "T12:00:00");
+const addDays = (k, n) => { const d = toDate(k); d.setDate(d.getDate() + n); return fmtDate(d); };
+/* Weekdays use the tracker's numbering: 0 = Monday ... 6 = Sunday. */
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const weekOrder = () => DAY_NAMES.map((_, i) => (i + weekStart) % 7);
+const weekStartOf = k => { const d = toDate(k); d.setDate(d.getDate() - ((d.getDay() + 6 - weekStart) % 7)); return fmtDate(d); };
+const dayName = (k, o = { weekday: "short", month: "short", day: "numeric" }) => toDate(k).toLocaleDateString([], o);
+const diffDays = (a, b) => Math.round((toDate(b) - toDate(a)) / 86400000);
+
+/* ---------- state ---------- */
+const state = { range: "today", from: null, to: null, app: "", domain: "", scope: "all", compare: true };
+let data = null, todayKey = null, weekStart = 0, timer = null, loadSeq = 0;
+
+function saveHash() {
+  const p = new URLSearchParams();
+  p.set("r", state.range);
+  if (state.range === "custom") { p.set("from", state.from); p.set("to", state.to); }
+  if (state.app) p.set("app", state.app);
+  if (state.domain) p.set("domain", state.domain);
+  if (state.scope !== "all") p.set("scope", state.scope);
+  if (!state.compare) p.set("cmp", "0");
+  history.replaceState(null, "", "#" + p.toString());
+}
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (p.get("r")) state.range = p.get("r");
+  if (state.range === "custom") { state.from = p.get("from"); state.to = p.get("to"); if (!state.from || !state.to) state.range = "today"; }
+  state.app = p.get("app") || ""; state.domain = p.get("domain") || "";
+  state.scope = p.get("scope") || "all"; state.compare = p.get("cmp") !== "0";
+}
+
+const RELATIVE_RANGES = ["today", "yesterday", "week", "lastweek", "30d"];
+function currentRange() {
+  const t = todayKey;
+  switch (state.range) {
+    case "today": return [t, t];
+    case "yesterday": return [addDays(t, -1), addDays(t, -1)];
+    case "week": return [weekStartOf(t), t];
+    case "lastweek": { const m = addDays(weekStartOf(t), -7); return [m, addDays(m, 6)]; }
+    case "30d": return [addDays(t, -29), t];
+    default: return [state.from, state.to];
+  }
+}
+
+async function api(params) {
+  const r = await fetch("/api/stats?" + new URLSearchParams(params));
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+async function load() {
+  clearTimeout(timer);
+  const seq = ++loadSeq;
+  try {
+    if (!todayKey) { const first = await api({}); todayKey = first.today; weekStart = first.settings.week_starts_on; }
+    const [from, to] = currentRange();
+    const q = { from, to, scope: state.scope };
+    if (state.app) q.app = state.app;
+    if (state.domain) q.domain = state.domain;
+    const d = await api(q);
+    if (seq !== loadSeq) return;
+    weekStart = d.settings.week_starts_on;
+    if (d.today !== todayKey) {
+      todayKey = d.today;   // the logical day rolled over while the page was open
+      if (RELATIVE_RANGES.includes(state.range)) return load();
+    }
+    data = d;
+    $("banner").hidden = true;
+    render(d);
+    $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+    $("pulse").classList.toggle("live", d.to === d.today);
+    if (d.to === d.today) timer = setTimeout(() => { if (!document.hidden) load(); else timer = setTimeout(load, 30000); }, 30000);
+  } catch (e) {
+    $("banner").hidden = false;
+    $("banner").textContent = "Can't reach the tracker. Check that the agent is running, then refresh.";
+    $("pulse").classList.remove("live");
+  }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && data && data.to === data.today) load(); });
+
+/* ---------- status helpers ---------- */
+const chip = (cls, text) => h("span", { class: "chip " + cls, text });
+const workdaysIn = daily => daily.filter(x => x.in_range && x.workday).length;
+const pct = (cur, prev) => prev > 0 ? Math.round((cur - prev) / prev * 100) : null;
+function delta(cur, prev, worse) {
+  if (!state.compare) return h("div", { class: "d" });
+  const p = pct(cur, prev);
+  if (p === null) return h("div", { class: "d", text: "No previous data" });
+  const arrow = p > 0 ? "\u25B2" : p < 0 ? "\u25BC" : "\u2013";
+  return h("div", { class: "d" + (worse && p > 0 ? " bad" : ""), text: `${arrow} ${Math.abs(p)}% vs previous` });
+}
+
+/* ---------- render ---------- */
+function render(d) {
+  renderToolbar(d);
+  renderRibbon(d);
+  renderKpis(d);
+  renderDaily(d);
+  renderWeek(d);
+  renderTable($("apps"), d.by_app, d, "app");
+  renderTable($("domains"), d.by_domain, d, "domain");
+  renderHeat(d);
+  renderSide(d);
+}
+
+function renderToolbar(d) {
+  document.querySelectorAll("#ranges button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.r === state.range)));
+  const same = d.from === d.to;
+  $("rangeLabel").textContent = same ? (d.from === d.today ? "Today" : dayName(d.from)) : `${dayName(d.from)} \u2013 ${dayName(d.to)}`;
+  $("next").disabled = d.to >= d.today;
+  const fill = (sel, opts, cur, all) => {
+    sel.replaceChildren(h("option", { value: "", text: all }));
+    const list = cur && !opts.includes(cur) ? [cur, ...opts] : opts;
+    list.forEach(o => sel.append(h("option", { value: o, text: o })));
+    sel.value = cur; sel.classList.toggle("on", !!cur);
+  };
+  fill($("fApp"), d.filters.apps, state.app, "All apps");
+  fill($("fDomain"), d.filters.domains, state.domain, "All sites");
+  $("fScope").value = state.scope; $("fScope").classList.toggle("on", state.scope !== "all");
+  $("cmp").checked = state.compare;
+  saveHash();
+}
+
+function renderRibbon(d) {
+  const t = d.timeline, el = $("ribbon"), g = d.settings;
+  $("tlTitle").textContent = `Day timeline \u00B7 ${dayName(t.day)}`;
+  const flo = ts => { const x = new Date(ts * 1000); x.setMinutes(0, 0, 0); return x.getTime() / 1000; };
+  const cei = ts => { const x = new Date(ts * 1000); if (x.getMinutes() || x.getSeconds()) x.setHours(x.getHours() + 1); x.setMinutes(0, 0, 0); return x.getTime() / 1000; };
+  const starts = t.sessions.map(x => x[0]), ends = t.sessions.map(x => x[1]);
+  let a = flo(Math.min(t.ws - 3600, ...starts)), b = cei(Math.max(t.we + 7200, ...ends, t.is_today ? t.now : 0));
+  a = Math.max(t.day_start, a); b = Math.min(t.day_end, b);
+  if (b - a < 8 * 3600) b = a + 8 * 3600;
+
+  const W = 1000, H = 112, barY = 40, barH = 30, axisY = 96;
+  const x = ts => Math.max(0, Math.min(W, (ts - a) / (b - a) * W));
+  const lim = t.is_workday ? [t.ws, Math.min(t.we, t.closed_at || Infinity)] : [Infinity, -Infinity];
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label": `Activity on ${dayName(t.day)}: ${t.sessions.length} stretches of work` });
+  svg.append(s("defs", {}, s("pattern", { id: "hatch", width: 7, height: 7, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" },
+    s("line", { x1: 0, y1: 0, x2: 0, y2: 7, stroke: "var(--line)", "stroke-width": 2 }))));
+  svg.append(s("rect", { x: 0, y: barY - 8, width: W, height: barH + 16, rx: 4, fill: "var(--zone-off)" }));
+  svg.append(s("rect", { x: 0, y: barY - 8, width: W, height: barH + 16, rx: 4, fill: "url(#hatch)" }));
+  if (lim[1] > lim[0]) svg.append(s("rect", { x: x(lim[0]), y: barY - 8, width: x(lim[1]) - x(lim[0]), height: barH + 16, fill: "var(--zone-in)" }));
+
+  for (let ts = cei(a); ts <= b; ts += 3600) {
+    const hr = new Date(ts * 1000).getHours();
+    if ((b - a) > 12 * 3600 && hr % 2) continue;
+    svg.append(s("line", { x1: x(ts), x2: x(ts), y1: barY - 8, y2: barY + barH + 8, stroke: "var(--grid)", "stroke-width": 1 }));
+    svg.append(s("text", { x: x(ts), y: axisY, "text-anchor": "middle", text: pad(hr) }));
+  }
+  const seg = (s0, e0, color, title) => { if (e0 - s0 > 0) svg.append(s("rect", { x: x(s0), y: barY, width: Math.max(2, x(e0) - x(s0)), height: barH, rx: 3, fill: color }, s("title", { text: title }))); };
+  t.sessions.forEach(([s0, e1]) => {
+    const title = `${clock(s0)} \u2013 ${clock(e1)} (${dur(e1 - s0)})`;
+    seg(Math.max(s0, lim[0]), Math.min(e1, lim[1]), "var(--data)", title);
+    seg(s0, Math.min(e1, lim[0]), "var(--after)", title + ", after hours");
+    seg(Math.max(s0, lim[1]), e1, "var(--after)", title + ", after hours");
+  });
+  const mark = (ts, color, dash, label, anchor = "middle") => {
+    if (ts < a || ts > b) return;
+    svg.append(s("line", { x1: x(ts), x2: x(ts), y1: barY - 14, y2: barY + barH + 10, stroke: color, "stroke-width": 2, "stroke-dasharray": dash }));
+    if (label) svg.append(s("text", { x: x(ts), y: 14, "text-anchor": anchor, text: label, style: "fill:" + color + ";font-weight:600" }));
+  };
+  if (t.is_workday) {
+    mark(t.we - g.alerts.wind_down_minutes_before_end * 60, "var(--warn)", "4 3");
+    mark(t.we, "var(--muted)", "", `End ${clock(t.we)}`);
+    if (t.closed_at) mark(t.closed_at, "var(--ok)", "", `Closed ${clock(t.closed_at)}`);
+  }
+  if (t.is_today) mark(t.now, "var(--data)", "", `Now ${clock(t.now)}`);
+  el.replaceChildren(svg);
+
+  const len = t.sessions.map(x => x[1] - x[0]);
+  const parts = [];
+  if (t.sessions.length) parts.push(`Started ${clock(starts[0])}`, `${t.sessions.length} stretch${t.sessions.length > 1 ? "es" : ""}`, `longest ${dur(Math.max(...len))}`);
+  let status = "";
+  if (t.is_today && t.is_workday) {
+    if (t.closed_at) status = `Day closed at ${clock(t.closed_at)}.`;
+    else if (t.now < t.we) status = `${dur(t.we - t.now)} until your workday ends at ${clock(t.we)}.`;
+    else status = `${dur(t.now - t.we)} past the end of your workday (${clock(t.we)}).`;
+  }
+  $("tlSub").textContent = [status, parts.join(", ")].filter(Boolean).join(" ") || "No activity recorded.";
+  $("tlLegend").replaceChildren(
+    h("span", {}, h("i", { style: "background:var(--data)" }), "Work hours"),
+    h("span", {}, h("i", { style: "background:var(--after)" }), "After hours"),
+    h("span", {}, h("i", { class: "line", style: "color:var(--warn)" }), `Wind-down (${g.alerts.wind_down_minutes_before_end} min before end)`),
+    h("span", {}, "Shaded band = your work window"));
+}
+
+function renderKpis(d) {
+  const g = d.settings.goals, T = d.totals, el = $("kpis");
+  const nWork = workdaysIn(d.daily);
+  const expT = nWork * g.daily_target_hours * 3600, expC = nWork * g.daily_ceiling_hours * 3600;
+  const filtered = !!(state.app || state.domain || state.scope !== "all");
+  const k = (label, value, sub, status) => h("div", { class: "kpi" }, h("span", { class: "l", text: label }), h("span", { class: "v" }, ...value), sub, status || h("div", { class: "d" }));
+
+  let st = null;
+  if (!filtered && expT > 0) st = T.active <= expT ? chip("ok", "Within target") : expC > 0 && T.active > expC ? chip("over", "Over limit") : chip("warn", "Over target");
+  const w = d.week;
+  let wst = w.ceiling && w.active >= w.ceiling ? chip("over", "Over weekly limit") : w.target && w.active >= w.target ? chip("warn", "Target reached") : w.target || w.ceiling ? chip("ok", "On track") : null;
+  const perDayAfter = T.after / Math.max(1, d.n_days);
+  const ast = filtered ? null : perDayAfter <= 900 ? chip("ok", "Boundaries held") : perDayAfter <= 3600 ? chip("warn", "Creeping") : chip("over", "Spilling over");
+  const lng = d.sessions.longest;
+  const lst = lng > 7200 ? chip("warn", "Long stretch") : null;
+  const wr = d.wrapped;
+  const rst = wr.of === 0 ? null : wr.ok === wr.of ? chip("ok", "All on time") : wr.ok * 2 >= wr.of ? chip("warn", "Some late") : chip("over", "Mostly late");
+
+  el.replaceChildren(
+    k(filtered ? "Active time (filtered)" : "Active time", [dur(T.active)], delta(T.active, T.prev_active, true), st),
+    k("This week", [dur(w.active), h("small", { text: ` / ${dur(w.target)}` })], h("div", { class: "d", text: `Limit ${dur(w.ceiling)}` }), wst),
+    k("After hours", [dur(T.after)], delta(T.after, T.prev_after, true), ast),
+    k("Longest stretch", [lng ? dur(lng) : "\u2013"], h("div", { class: "d", text: "Without a 5 min pause" }), lst),
+    k("Breaks per day", [d.sessions.avg_breaks ? d.sessions.avg_breaks.toFixed(1) : "\u2013"], h("div", { class: "d", text: "Pauses of 5 min or more" })),
+    k("Days wrapped on time", [wr.of ? `${wr.ok}` : "\u2013", h("small", { text: wr.of ? ` / ${wr.of}` : "" })], h("div", { class: "d", text: "Under 15 min after hours" }), rst));
+}
+
+function niceStep(max) { return max <= 6 ? 1 : max <= 12 ? 2 : 4; }
+function renderDaily(d) {
+  const el = $("daily"), g = d.settings.goals, days = d.daily, n = days.length;
+  const W = 720, H = 250, L = 34, R = 8, T = 16, B = 30;
+  const maxData = Math.max(0, ...days.map(x => (x.in_secs + x.after_secs) / 3600));
+  const step = niceStep(Math.max(maxData, g.daily_ceiling_hours));
+  const yMax = Math.ceil(Math.max(maxData, g.daily_ceiling_hours * 1.1, 1) / step) * step;
+  const y = v => T + (H - T - B) * (1 - v / yMax);
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Active hours per day with target and limit lines" });
+  for (let v = 0; v <= yMax; v += step) {
+    svg.append(s("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: "var(--grid)" }));
+    svg.append(s("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", text: v + "h" }));
+  }
+  const slot = (W - L - R) / n, bw = Math.min(34, slot * 0.68);
+  days.forEach((day, i) => {
+    const cx = L + slot * i + slot / 2, inH = day.in_secs / 3600, afH = day.after_secs / 3600, tot = inH + afH;
+    const g2 = s("g", { opacity: day.in_range ? 1 : 0.4 });
+    if (inH > 0) g2.append(s("rect", { x: cx - bw / 2, y: y(inH), width: bw, height: y(0) - y(inH), fill: "var(--data)", rx: 2 }));
+    if (afH > 0) g2.append(s("rect", { x: cx - bw / 2, y: y(tot), width: bw, height: y(inH) - y(tot), fill: "var(--after)", rx: 2 }));
+    if (tot > g.daily_ceiling_hours && g.daily_ceiling_hours > 0) g2.append(s("rect", { x: cx - bw / 2 - 1.5, y: y(tot) - 1.5, width: bw + 3, height: y(0) - y(tot) + 1.5, fill: "none", stroke: "var(--over)", "stroke-width": 2, rx: 3 }));
+    svg.append(g2);
+    const label = n <= 16 ? `${toDate(day.day).toLocaleDateString([], { weekday: "narrow" })} ${toDate(day.day).getDate()}` : (i % 2 === 0 ? String(toDate(day.day).getDate()) : "");
+    svg.append(s("text", { x: cx, y: H - 10, "text-anchor": "middle", text: label, style: day.workday ? "" : "opacity:.6" }));
+    svg.append(s("rect", { class: "bar-hit", x: cx - slot / 2, y: T, width: slot, height: H - T - B, tabindex: 0, role: "button",
+      "aria-label": `${dayName(day.day)}: ${dur(day.in_secs + day.after_secs)} active. Show this day.` }, s("title", { text: `${dayName(day.day)}\nWork hours ${dur(day.in_secs)}\nAfter hours ${dur(day.after_secs)}` })));
+    const hit = svg.lastChild;
+    const go = () => { state.range = "custom"; state.from = state.to = day.day; load(); };
+    hit.addEventListener("click", go);
+    hit.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+  });
+  const line = (v, color, label) => {
+    if (!(v > 0) || v > yMax) return;
+    svg.append(s("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: color, "stroke-width": 1.5, "stroke-dasharray": "5 4" }));
+    svg.append(s("text", { x: W - R - 2, y: y(v) - 4, "text-anchor": "end", text: label, style: `fill:${color};font-weight:600` }));
+  };
+  line(g.daily_target_hours, "var(--ok)", `target ${hrs(g.daily_target_hours)}`);
+  line(g.daily_ceiling_hours, "var(--over)", `limit ${hrs(g.daily_ceiling_hours)}`);
+  el.replaceChildren(svg);
+  $("dailySub").textContent = "Outlined bars are over your daily limit. Click a bar to open that day.";
+}
+
+function renderWeek(d) {
+  const w = d.week, el = $("week");
+  const axisMax = Math.max(w.ceiling * 1.2, w.active * 1.1, w.target * 1.2, 1);
+  const p = v => Math.min(100, v / axisMax * 100) + "%";
+  const cls = w.ceiling && w.active >= w.ceiling ? "over" : w.target && w.active >= w.target ? "warn" : "";
+  const mon = w.from, sun = addDays(mon, 6);
+  const diff = w.active - w.expected;
+  const lines = [];
+  if (w.frac < 0.05) lines.push(h("div", { text: "The week has just started." }));
+  else lines.push(h("div", {}, `${dur(Math.abs(diff))} ${diff > 0 ? "above" : "below"} an even pace for this point in the week.`));
+  if (w.projection) {
+    const pj = w.projection, c = w.ceiling && pj > w.ceiling ? chip("over", "Over limit") : w.target && pj > w.target ? chip("warn", "Over target") : chip("ok", "Within target");
+    lines.push(h("div", {}, `At this pace the week ends near ${dur(pj)} `, c));
+  }
+  el.replaceChildren(
+    h("div", { class: "ph" }, h("h2", { text: "Week pace" }), h("span", { class: "sub", text: `${dayName(mon, { month: "short", day: "numeric" })} \u2013 ${dayName(sun, { month: "short", day: "numeric" })}` })),
+    h("div", { class: "wk-big" }, dur(w.active), h("span", { class: "sub", text: ` of ${dur(w.target)} target` })),
+    h("div", { class: "track", role: "img", "aria-label": `${dur(w.active)} active this week; target ${dur(w.target)}; limit ${dur(w.ceiling)}` },
+      h("div", { class: "fill " + cls, style: `width:${p(w.active)}` }),
+      h("div", { class: "tick exp", style: `left:${p(w.expected)}` }, h("span", { text: "even pace" })),
+      h("div", { class: "tick", style: `left:${p(w.target)}` }, h("span", { text: "target" })),
+      h("div", { class: "tick", style: `left:${p(w.ceiling)}` }, h("span", { text: "limit" }))),
+    h("div", { class: "kv" }, ...lines),
+    h("p", { class: "note", text: "WHO and ILO link regular 55 hour weeks to higher stroke and heart-disease risk. Tracked active time undercounts time at the desk." }));
+}
+
+function renderTable(el, rows, d, kind) {
+  if (!rows.length) { el.replaceChildren(h("div", { class: "empty", text: "No activity recorded for this selection." })); return; }
+  const total = rows.reduce((a, r) => a + r.secs, 0) || 1, max = rows[0].secs || 1;
+  const sel = state[kind];
+  const head = h("tr", {}, h("th", { text: kind === "app" ? "Application" : "Website" }), h("th", { class: "n", text: "Time" }), h("th", { class: "n", text: "Share" }), state.compare ? h("th", { class: "n", text: "vs previous" }) : null);
+  const body = rows.map(r => {
+    const p = pct(r.secs, r.prev);
+    const cell = !state.compare ? null : h("td", { class: "n " + (p > 0 ? "up" : "flat"), text: p === null ? "new" : `${p > 0 ? "\u25B2" : p < 0 ? "\u25BC" : "\u2013"} ${Math.abs(p)}%` });
+    return h("tr", { class: sel === r.name ? "sel" : "" },
+      h("td", {}, h("div", { class: "nm" },
+          h("img", { class: "ico", alt: "", loading: "lazy", src: `/api/icon?${kind}=${encodeURIComponent(r.name)}`, onerror: e => { e.target.style.visibility = "hidden"; } }),
+          h("button", { class: "link", title: r.name, "aria-pressed": String(sel === r.name), text: r.name, onclick: () => { state[kind] = sel === r.name ? "" : r.name; load(); } })),
+        h("div", { class: "mini" }, h("i", { style: `width:${r.secs / max * 100}%` }))),
+      h("td", { class: "n", text: dur(r.secs) }), h("td", { class: "n", text: Math.round(r.secs / total * 100) + "%" }), cell);
+  });
+  el.replaceChildren(h("table", {}, h("thead", {}, head), h("tbody", {}, body)));
+}
+
+function renderHeat(d) {
+  const el = $("heat"), g = d.settings, max = Math.max(1, ...d.heat.flat());
+  const ws = +g.work_start.slice(0, 2), we = Math.ceil((+g.work_end.slice(0, 2) * 60 + +g.work_end.slice(3)) / 60);
+  const names = DAY_NAMES;
+  const kids = [];
+  weekOrder().forEach(wd => {
+    const row = d.heat[wd];
+    kids.push(h("span", { class: "rl", text: names[wd] }));
+    row.forEach((v, hr) => {
+      const off = !g.work_days.includes(wd) || hr < ws || hr >= we;
+      const c = h("div", { class: "c", title: `${names[wd]} ${pad(hr)}:00 \u2013 ${dur(v)}` });
+      if (v > 0) c.style.background = `color-mix(in srgb, var(${off ? "--after" : "--data"}) ${Math.max(12, Math.round(v / max * 100))}%, transparent)`;
+      kids.push(c);
+    });
+  });
+  kids.push(h("span"));
+  [0, 6, 12, 18].forEach(hr => kids.push(h("span", { class: "cl", text: pad(hr) + ":00" })));
+  el.replaceChildren(...kids);
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-WT": "1" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+}
+
+function renderSide(d) {
+  const el = $("side"), t = d.timeline, kids = [];
+  const isToday = d.to === d.today;
+  if (isToday && d.first_step) {
+    kids.push(h("div", { class: "step-card" }, h("b", { text: "Your first step today" }), h("span", { text: d.first_step.text }), h("div", { class: "sub", text: `Written ${dayName(d.first_step.day)}` })));
+  }
+  if (isToday) {
+    if (t.closed_at) {
+      kids.push(h("div", { class: "step-card" }, h("b", { text: `Day closed at ${clock(t.closed_at)}` }),
+        h("span", { text: t.note ? `Tomorrow: ${t.note}` : "No note saved." }),
+        h("div", { class: "row-actions" }, h("button", { class: "btn", text: "Reopen day", onclick: async () => { await post("/api/close", { reopen: true }); load(); } }))));
+    } else {
+      // Auto-refresh re-renders this panel; carry over a draft being typed.
+      const prev = $("note");
+      const ta = h("textarea", { id: "note", maxlength: 300, placeholder: "Tomorrow's first step: what, and when will you start?", "aria-label": "Tomorrow's first step" });
+      if (prev) {
+        ta.value = prev.value;
+        if (document.activeElement === prev) requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(prev.selectionStart, prev.selectionEnd); });
+      }
+      kids.push(h("div", {}, h("h2", { text: "Close the day" }),
+        h("p", { class: "sub", text: "A specific plan frees your head for the evening. Time counted after you close is after hours." }), ta,
+        h("div", { class: "row-actions" }, h("button", { class: "btn primary", text: "Save and close day", onclick: async () => { await post("/api/close", { note: ta.value.trim() }); load(); } }))));
+    }
+  }
+  const list = h("ul", { class: "alerts" });
+  if (!d.alerts.length) list.append(h("li", { class: "empty", text: "No alerts in this range." }));
+  d.alerts.forEach(a => list.append(h("li", {}, h("time", { text: `${dayName(fmtDate(new Date(a.ts * 1000)), { weekday: "short" })} ${clock(a.ts)}` }), h("span", { text: a.message }))));
+  kids.push(h("div", { style: kids.length ? "margin-top:18px" : "" }, h("h2", { text: "Alerts", style: "margin-bottom:6px" }), list));
+  el.replaceChildren(...kids);
+}
+
+/* ---------- toolbar events ---------- */
+document.querySelectorAll("#ranges button").forEach(b => b.addEventListener("click", () => { state.range = b.dataset.r; load(); }));
+function stepBy(dir) {
+  if (!data) return;
+  const n = diffDays(data.from, data.to) + 1;
+  let from = addDays(data.from, dir * n), to = addDays(data.to, dir * n);
+  if (to > data.today) return;
+  state.range = "custom"; state.from = from; state.to = to; load();
+}
+$("prev").addEventListener("click", () => stepBy(-1));
+$("next").addEventListener("click", () => stepBy(1));
+$("fApp").addEventListener("change", e => { state.app = e.target.value; load(); });
+$("fDomain").addEventListener("change", e => { state.domain = e.target.value; load(); });
+$("fScope").addEventListener("change", e => { state.scope = e.target.value; load(); });
+$("cmp").addEventListener("change", e => { state.compare = e.target.checked; if (data) { renderToolbar(data); renderKpis(data); renderTable($("apps"), data.by_app, data, "app"); renderTable($("domains"), data.by_domain, data, "domain"); } });
+$("refresh").addEventListener("click", load);
+
+$("export").addEventListener("click", () => {
+  if (!data) return;
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = ["section,name,work_hours_secs,after_hours_secs,total_secs"];
+  data.daily.filter(x => x.in_range).forEach(x => lines.push(["daily", x.day, Math.round(x.in_secs), Math.round(x.after_secs), Math.round(x.in_secs + x.after_secs)].join(",")));
+  data.by_app.forEach(x => lines.push(["app", q(x.name), "", "", Math.round(x.secs)].join(",")));
+  data.by_domain.forEach(x => lines.push(["website", q(x.name), "", "", Math.round(x.secs)].join(",")));
+  const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+  const a = h("a", { href: url, download: `worktracker_${data.from}_${data.to}.csv` });
+  document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+});
+
+/* ---------- settings ---------- */
+const dlg = $("dlg");
+$("settings").addEventListener("click", () => {
+  if (!data) return;
+  const g = data.settings;
+  $("gDT").value = g.goals.daily_target_hours; $("gDC").value = g.goals.daily_ceiling_hours;
+  $("gWT").value = g.goals.weekly_target_hours; $("gWC").value = g.goals.weekly_ceiling_hours;
+  $("wS").value = g.work_start; $("wE").value = g.work_end; $("plan").value = g.shutdown_plan;
+  $("brk").value = g.alerts.continuous_work_minutes; $("idl").value = g.idle_threshold_minutes;
+  $("aOn").checked = g.alerts.enabled; $("aDlg").checked = g.alerts.dialogs_for_important;
+  $("wD").replaceChildren(...weekOrder().map(i =>
+    h("label", {}, h("input", { type: "checkbox", value: i, checked: g.work_days.includes(i) }), DAY_NAMES[i])));
+  $("wkS").replaceChildren(...weekOrder().map(i => h("option", { value: i, selected: i === g.week_starts_on, text: DAY_NAMES[i] })));
+  $("dSH").replaceChildren(...Array.from({ length: 13 }, (_, hr) => h("option", { value: hr, selected: hr === g.day_starts_at_hour, text: pad(hr) + ":00" })));
+  dlg.showModal();
+});
+$("dCancel").addEventListener("click", e => { e.preventDefault(); dlg.close(); });
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = {
+    goals: { daily_target_hours: +$("gDT").value, daily_ceiling_hours: +$("gDC").value, weekly_target_hours: +$("gWT").value, weekly_ceiling_hours: +$("gWC").value },
+    work_start: $("wS").value, work_end: $("wE").value, shutdown_plan: $("plan").value,
+    idle_threshold_minutes: +$("idl").value,
+    work_days: [...document.querySelectorAll("#wD input:checked")].map(i => +i.value),
+    week_starts_on: +$("wkS").value,
+    day_starts_at_hour: +$("dSH").value,
+    alerts: { enabled: $("aOn").checked, dialogs_for_important: $("aDlg").checked, continuous_work_minutes: +$("brk").value },
+  };
+  try { await post("/api/config", body); weekStart = body.week_starts_on; dlg.close(); load(); }
+  catch (err) { alert("Could not save. Check that times and numbers are valid."); }
+});
+
+readHash();
+load();
+</script>
+</body>
+</html>

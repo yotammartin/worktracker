@@ -1,0 +1,6 @@
+# Personal activity data, config and logs
+data/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
